@@ -6,11 +6,11 @@ on:
       publish_release:
         description: 把生成的固件发布到 GitHub Release
         required: true
-        default: "false"
+        default: "true"
         type: choice
         options:
-          - "false"
           - "true"
+          - "false"
       imagebuilder_url:
         description: ImmortalWrt ImageBuilder 下载地址
         required: true
