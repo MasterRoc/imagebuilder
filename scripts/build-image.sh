@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${VERSION:-25.12-SNAPSHOT}"
+VERSION="${VERSION:-25.12.1}"
 TARGET="${TARGET:-x86/64}"
 PROFILE="${PROFILE:-generic}"
 IMAGEBUILDER_URL="${IMAGEBUILDER_URL:-https://downloads.immortalwrt.org/releases/25.12.1/targets/x86/64/immortalwrt-imagebuilder-25.12.1-x86-64.Linux-x86_64.tar.zst}"
@@ -201,7 +201,7 @@ fi
 	cat > BUILD-MANIFEST.txt <<BODYEOF
 ## daede 固件 · ${EXTRA_IMAGE_NAME}
 
-基于 ImmortalWrt 25.12-SNAPSHOT，x86-64 通用镜像，squashfs-only。
+基于 ImmortalWrt 25.12.1，x86-64 通用镜像，squashfs-only。
 
 ### 推荐下载
 
