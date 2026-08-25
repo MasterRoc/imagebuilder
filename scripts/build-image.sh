@@ -5,47 +5,47 @@ set -euo pipefail
 ###############################################################################
 # ImmortalWrt ImageBuilder 自动构建脚本
 #
-# 默认行为：
-#   - 自动获取 ImmortalWrt 最新正式稳定版
-#   - 自动匹配对应 x86/64 ImageBuilder
-#   - 自动匹配对应 package feeds / kernel
+# VERSION:
+#   留空   -> 自动获取 ImmortalWrt 最新正式稳定版
+#   指定值 -> 使用指定版本
 #
-# 可通过环境变量覆盖：
-#   VERSION=25.12.1
-#   IMAGEBUILDER_URL=...
-#   TARGET=x86/64
-#   PROFILE=generic
+# GitHub Actions:
+#
+#   VERSION=""        -> 最新版本
+#   VERSION="25.12.0" -> 指定旧版本
 ###############################################################################
 
 ###############################################################################
 # 基本配置
 ###############################################################################
 
-# ImmortalWrt 官方下载站
 DOWNLOAD_BASE="${DOWNLOAD_BASE:-https://downloads.immortalwrt.org}"
 
-# 默认自动检测最新正式版
-# 如果手动指定 VERSION，则跳过自动检测
 VERSION="${VERSION:-}"
 
 TARGET="${TARGET:-x86/64}"
 PROFILE="${PROFILE:-generic}"
 
 EXTRA_IMAGE_NAME="${EXTRA_IMAGE_NAME:-custom}"
+
 OUT_DIR="${OUT_DIR:-$PWD/out}"
 WORK_DIR="${WORK_DIR:-$PWD/work}"
 
 PREFLIGHT="${PREFLIGHT:-1}"
+
 ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-4096}"
 
-# 保留原有依赖，不删除
+###############################################################################
+# 保留原有依赖
+###############################################################################
+
 EXTRA_PACKAGES="${EXTRA_PACKAGES:-luci luci-i18n-base-zh-cn openssh-sftp-server luci-i18n-ddns-zh-cn luci-theme-argon luci-i18n-ttyd-zh-cn luci-i18n-firewall-zh-cn luci-i18n-package-manager-zh-cn kmod-sched-core kmod-sched-bpf kmod-veth kmod-xdp-sockets-diag curl nano}"
 
 ###############################################################################
-# 检查依赖
+# 依赖检查
 ###############################################################################
 
-for cmd in curl sed tar unzstd sha256sum date awk grep sort head; do
+for cmd in curl sed tar unzstd sha256sum date grep awk sort head; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "ERROR: missing required command: $cmd" >&2
         exit 1
@@ -53,131 +53,228 @@ for cmd in curl sed tar unzstd sha256sum date awk grep sort head; do
 done
 
 ###############################################################################
-# 自动获取最新 ImmortalWrt 正式版本
+# 获取最新正式版
+#
+# ImmortalWrt 官方下载首页会明确标记：
+#
+#   ImmortalWrt XX.XX.X
+#
+# 当前 Stable Release。
+#
+# 优先从官方首页读取，而不是猜 releases 目录。
 ###############################################################################
 
 get_latest_version() {
+
     echo "Detecting latest ImmortalWrt stable release..." >&2
 
-    local releases_url
-    releases_url="${DOWNLOAD_BASE}/releases/"
-
+    local homepage
     local latest
 
-    latest="$(
-        curl -fsSL \
+    homepage="$(
+        curl -fLsS \
             --retry 8 \
             --retry-delay 5 \
             --connect-timeout 30 \
-            "$releases_url" |
-        grep -oE 'href="[0-9]+\.[0-9]+(\.[0-9]+)?/"' |
-        sed -E 's/^href="//; s#/$##' |
+            --max-time 60 \
+            "${DOWNLOAD_BASE}/"
+    )"
+
+    latest="$(
+        printf '%s\n' "$homepage" |
+        grep -oE 'ImmortalWrt [0-9]+\.[0-9]+(\.[0-9]+)?' |
+        sed -E 's/^ImmortalWrt //' |
         sort -V |
         tail -n 1
     )"
 
     if [ -z "$latest" ]; then
-        echo "ERROR: unable to detect latest ImmortalWrt release." >&2
-        echo "URL: $releases_url" >&2
+        echo "ERROR: unable to detect latest ImmortalWrt stable release." >&2
+        echo "Source: ${DOWNLOAD_BASE}/" >&2
         exit 1
     fi
 
-    echo "$latest"
+    printf '%s\n' "$latest"
 }
 
 ###############################################################################
-# 确定 VERSION
+# 确定版本
 ###############################################################################
 
 if [ -z "$VERSION" ]; then
-    VERSION="$(get_latest_version)"
+
     AUTO_VERSION=1
+
+    VERSION="$(get_latest_version)"
+
 else
+
     AUTO_VERSION=0
+
 fi
 
-echo "========================================"
-echo "ImmortalWrt Build"
-echo "========================================"
-echo "Version : $VERSION"
-echo "Target  : $TARGET"
-echo "Profile : $PROFILE"
-echo "========================================"
+###############################################################################
+# 检查版本格式
+###############################################################################
+
+if ! printf '%s\n' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+
+    echo "ERROR: invalid ImmortalWrt version: $VERSION" >&2
+    echo "Expected format: X.Y.Z" >&2
+
+    exit 1
+
+fi
+
+###############################################################################
+# 检查指定版本是否存在
+###############################################################################
+
+VERSION_URL="${DOWNLOAD_BASE}/releases/${VERSION}/"
+
+echo
+echo "Checking ImmortalWrt version..."
+echo "Version URL: ${VERSION_URL}"
+
+if ! curl -fLsS \
+    --retry 5 \
+    --retry-delay 3 \
+    --connect-timeout 30 \
+    --max-time 60 \
+    -o /dev/null \
+    "$VERSION_URL"; then
+
+    echo
+    echo "ERROR: ImmortalWrt version does not exist:"
+    echo "  $VERSION"
+    echo
+    echo "URL:"
+    echo "  $VERSION_URL"
+    echo
+
+    exit 1
+
+fi
 
 ###############################################################################
 # 自动生成 ImageBuilder URL
 ###############################################################################
 
-if [ -z "${IMAGEBUILDER_URL:-}" ]; then
+if [ -n "${IMAGEBUILDER_URL:-}" ]; then
 
-    # x86/64 对应官方目录：
-    #
-    # releases/<VERSION>/targets/x86/64/
-    #
-    # 文件名：
-    # immortalwrt-imagebuilder-<VERSION>-x86-64.Linux-x86_64.tar.zst
+    echo
+    echo "Using manually specified ImageBuilder URL:"
+    echo "$IMAGEBUILDER_URL"
+
+else
 
     IMAGEBUILDER_URL="${DOWNLOAD_BASE}/releases/${VERSION}/targets/${TARGET}/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.zst"
 
-    echo "ImageBuilder URL:"
-    echo "$IMAGEBUILDER_URL"
-else
-    echo "Using custom ImageBuilder URL:"
-    echo "$IMAGEBUILDER_URL"
 fi
+
+###############################################################################
+# 显示构建信息
+###############################################################################
+
+echo
+echo "========================================"
+echo "ImmortalWrt Build"
+echo "========================================"
+echo "Version          : $VERSION"
+echo "Target           : $TARGET"
+echo "Profile          : $PROFILE"
+echo "Auto version     : $AUTO_VERSION"
+echo "Rootfs part size : ${ROOTFS_PARTSIZE}MB"
+echo
+echo "ImageBuilder:"
+echo "$IMAGEBUILDER_URL"
+echo "========================================"
+echo
 
 ###############################################################################
 # 工作目录
 ###############################################################################
 
-mkdir -p "$WORK_DIR" "$OUT_DIR"
+mkdir -p "$WORK_DIR"
+mkdir -p "$OUT_DIR"
 
 IB_ARCHIVE="$WORK_DIR/imagebuilder.tar.zst"
+
+###############################################################################
+# 验证 ImageBuilder URL
+###############################################################################
+
+echo "Checking ImageBuilder..."
+
+if ! curl -fILsS \
+    --retry 5 \
+    --retry-delay 3 \
+    --connect-timeout 30 \
+    --max-time 60 \
+    "$IMAGEBUILDER_URL" >/dev/null; then
+
+    echo
+    echo "ERROR: ImageBuilder not found."
+    echo
+    echo "ImmortalWrt version:"
+    echo "  $VERSION"
+    echo
+    echo "Target:"
+    echo "  $TARGET"
+    echo
+    echo "ImageBuilder:"
+    echo "  $IMAGEBUILDER_URL"
+    echo
+
+    exit 1
+
+fi
 
 ###############################################################################
 # 下载 ImageBuilder
 ###############################################################################
 
-download_imagebuilder() {
+if [ ! -s "$IB_ARCHIVE" ]; then
 
     echo
-    echo "Downloading ImmortalWrt ImageBuilder..."
+    echo "Downloading ImageBuilder..."
     echo
 
     curl -fL \
         --retry 8 \
         --retry-delay 5 \
         --connect-timeout 30 \
+        --max-time 3600 \
         --progress-bar \
         -o "$IB_ARCHIVE" \
         "$IMAGEBUILDER_URL"
-}
 
-###############################################################################
-# 如果 ImageBuilder 不存在，则下载
-###############################################################################
-
-if [ ! -s "$IB_ARCHIVE" ]; then
-    download_imagebuilder
 fi
 
 ###############################################################################
-# 验证 ImageBuilder 是否可以解压
-#
-# 如果之前缓存的是旧版本，而 VERSION 已经变化，
-# 自动删除旧缓存重新下载。
+# 验证缓存的 ImageBuilder
 ###############################################################################
 
-if ! tar --use-compress-program=unzstd -tf "$IB_ARCHIVE" >/dev/null 2>&1; then
+if ! tar \
+    --use-compress-program=unzstd \
+    -tf "$IB_ARCHIVE" >/dev/null 2>&1; then
 
     echo
-    echo "Cached ImageBuilder archive is invalid."
-    echo "Removing cached archive and downloading again..."
+    echo "Cached ImageBuilder is invalid."
+    echo "Removing cache and downloading again..."
     echo
 
     rm -f "$IB_ARCHIVE"
 
-    download_imagebuilder
+    curl -fL \
+        --retry 8 \
+        --retry-delay 5 \
+        --connect-timeout 30 \
+        --max-time 3600 \
+        --progress-bar \
+        -o "$IB_ARCHIVE" \
+        "$IMAGEBUILDER_URL"
+
 fi
 
 ###############################################################################
@@ -202,20 +299,36 @@ tar \
 ###############################################################################
 
 if [ ! -f "$WORK_DIR/imagebuilder/Makefile" ]; then
-    echo "ERROR: Invalid ImmortalWrt ImageBuilder." >&2
-    echo "URL: $IMAGEBUILDER_URL" >&2
+
+    echo
+    echo "ERROR: Invalid ImageBuilder archive."
+    echo "URL: $IMAGEBUILDER_URL"
+    echo
+
     exit 1
+
 fi
 
 ###############################################################################
-# 注入自定义 files
+# 检查 files
 ###############################################################################
 
 if [ ! -d "$PWD/files" ]; then
-    echo "ERROR: files directory not found." >&2
-    echo "Please create ./files before running the build." >&2
+
+    echo
+    echo "ERROR: files directory not found."
+    echo
+    echo "Expected:"
+    echo "  $PWD/files"
+    echo
+
     exit 1
+
 fi
+
+###############################################################################
+# 注入 files
+###############################################################################
 
 rm -rf "$WORK_DIR/imagebuilder/files"
 
@@ -228,29 +341,38 @@ cp -a "$PWD/files" "$WORK_DIR/imagebuilder/files"
 cd "$WORK_DIR/imagebuilder"
 
 ###############################################################################
-# 输出构建信息
+# 构建信息
 ###############################################################################
 
 echo
 echo "========================================"
 echo "Build configuration"
 echo "========================================"
-echo "Version           : $VERSION"
+echo "ImmortalWrt       : $VERSION"
 echo "Target            : $TARGET"
 echo "Profile           : $PROFILE"
 echo "Rootfs part size  : ${ROOTFS_PARTSIZE}MB"
-echo "Auto detected     : $AUTO_VERSION"
 echo "ImageBuilder      : $IMAGEBUILDER_URL"
-echo "Extra packages    : $EXTRA_PACKAGES"
+echo
+echo "Extra packages:"
+echo "$EXTRA_PACKAGES"
 echo "========================================"
 echo
 
 mkdir -p "$OUT_DIR"
 
-echo "version=$VERSION" > "$OUT_DIR/.build_info"
-echo "target=$TARGET" >> "$OUT_DIR/.build_info"
-echo "profile=$PROFILE" >> "$OUT_DIR/.build_info"
-echo "imagebuilder_url=$IMAGEBUILDER_URL" >> "$OUT_DIR/.build_info"
+###############################################################################
+# 保存构建信息
+###############################################################################
+
+cat > "$OUT_DIR/.build_info" <<EOF
+version=$VERSION
+target=$TARGET
+profile=$PROFILE
+imagebuilder_url=$IMAGEBUILDER_URL
+auto_version=$AUTO_VERSION
+EOF
+
 echo "extra_packages=$EXTRA_PACKAGES" > "$OUT_DIR/.extra_packages"
 
 ###############################################################################
@@ -265,17 +387,17 @@ diagnose_failure() {
 ImageBuilder failed
 ========================================
 
-Version:
-    $VERSION
+ImmortalWrt version:
+  $VERSION
 
 Target:
-    $TARGET
+  $TARGET
 
 Profile:
-    $PROFILE
+  $PROFILE
 
 ImageBuilder:
-    $IMAGEBUILDER_URL
+  $IMAGEBUILDER_URL
 
 Common causes:
 
@@ -287,19 +409,15 @@ Common causes:
 3. A kmod-* package does not match the kernel version
    used by this ImageBuilder.
 
-4. The ImageBuilder URL does not match the selected
-   target/version.
+4. The selected ImageBuilder does not match the
+   selected ImmortalWrt version.
 
-5. The upstream package repository is temporarily
+5. ImmortalWrt package repositories are temporarily
    unavailable.
 
-Try:
+You can test package availability with:
 
     make manifest PROFILE="$PROFILE" PACKAGES="$EXTRA_PACKAGES"
-
-If the error is related to a kmod-* package,
-make sure the package comes from the same ImmortalWrt
-release as this ImageBuilder.
 
 ========================================
 
@@ -307,13 +425,15 @@ EOF
 }
 
 ###############################################################################
-# Package manifest preflight
+# Package preflight
 ###############################################################################
 
 if [ "$PREFLIGHT" = "1" ] || [ "$PREFLIGHT" = "true" ]; then
 
     echo
+    echo "========================================"
     echo "Running package manifest preflight..."
+    echo "========================================"
     echo
 
     if ! make manifest \
@@ -322,26 +442,13 @@ if [ "$PREFLIGHT" = "1" ] || [ "$PREFLIGHT" = "true" ]; then
 
         diagnose_failure
         exit 1
+
     fi
 
 fi
 
 ###############################################################################
 # 精简镜像格式
-#
-# 保留：
-#   squashfs combined EFI
-#   img.gz
-#   qcow2
-#   vmdk
-#
-# 禁用：
-#   ext4
-#   targz
-#   vdi
-#   vhdx
-#   iso
-#   grub
 ###############################################################################
 
 echo
@@ -357,7 +464,7 @@ sed -i \
     .config
 
 ###############################################################################
-# 开始构建
+# 构建镜像
 ###############################################################################
 
 echo
@@ -376,10 +483,11 @@ if ! make image \
 
     diagnose_failure
     exit 1
+
 fi
 
 ###############################################################################
-# 重命名输出文件
+# 重命名输出
 ###############################################################################
 
 cd "$OUT_DIR"
@@ -433,8 +541,11 @@ for f in \
     manifest \
     bom.cdx.json
 do
+
     [ -f "$f" ] || continue
+
     sha256sum "$f"
+
 done > sha256sums
 
 ###############################################################################
@@ -460,8 +571,7 @@ x86-64 通用镜像，squashfs-only。
 - **Target**：${TARGET}
 - **Profile**：${PROFILE}
 - **ImageBuilder**：${IMAGEBUILDER_URL}
-- **版本来源**：ImmortalWrt 官方 releases
-- **自动跟随上游**：$([ "$AUTO_VERSION" = "1" ] && echo "是" || echo "否，手动指定 VERSION")
+- **自动检测版本**：$([ "$AUTO_VERSION" = "1" ] && echo "是" || echo "否，手动指定版本")
 
 ### 推荐下载
 
@@ -475,8 +585,8 @@ x86-64 通用镜像，squashfs-only。
 
 ### 镜像详情
 
-- **系统类型**：squashfs（只读根 + overlay 可写层）
-- **分区**：combined（含分区表 + 引导）
+- **系统类型**：squashfs
+- **分区**：combined
 - **启动方式**：EFI
 - **架构**：x86-64
 - **根分区大小**：${ROOTFS_PARTSIZE} MB
@@ -496,20 +606,14 @@ sha256sum -c sha256sums --ignore-missing
 
 本固件默认自动检测 ImmortalWrt 最新正式稳定版本。
 
-如果需要固定版本，可以：
+如果 GitHub Actions 手动指定 VERSION，则使用指定版本。
+
+例如：
 
 \`\`\`bash
-VERSION=25.12.1 ./build-image.sh
+VERSION=25.12.0 ./build-image.sh
 \`\`\`
-
-如果不设置 VERSION，则自动使用 ImmortalWrt 官方最新正式版本。
 BODYEOF
-
-###############################################################################
-# 清理内部文件
-###############################################################################
-
-rm -f "$OUT_DIR/.extra_packages"
 
 ###############################################################################
 # 输出结果
