@@ -117,6 +117,8 @@ echo "Target: $TARGET"
 echo "Profile: $PROFILE"
 echo "Rootfs part size: ${ROOTFS_PARTSIZE}MB"
 echo "Extra packages: $EXTRA_PACKAGES"
+echo "Install daede APK: $INSTALL_DAEDE"
+echo "Daede release: $DAEDE_REPO@$DAEDE_RELEASE_TAG ($DAEDE_ARCH)"
 mkdir -p "$OUT_DIR"
 echo "extra_packages=$EXTRA_PACKAGES" > "$OUT_DIR/.extra_packages"
 
