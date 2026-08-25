@@ -1,4 +1,5 @@
-name: Build immortalwrt-86x64 image
+```yaml
+name: Build immortalwrt-x86-64 image
 
 on:
   workflow_dispatch:
@@ -11,10 +12,7 @@ on:
         options:
           - "true"
           - "false"
-      imagebuilder_url:
-        description: ImmortalWrt ImageBuilder 下载地址
-        required: true
-        default: "https://downloads.immortalwrt.org/releases/25.12.1/targets/x86/64/immortalwrt-imagebuilder-25.12.1-x86-64.Linux-x86_64.tar.zst"
+
       preflight:
         description: 构建前先检查软件包清单是否齐全
         required: true
@@ -23,14 +21,16 @@ on:
         options:
           - "true"
           - "false"
+
       rootfs_partsize:
         description: 根文件系统分区大小（MB）
         required: true
         default: "4096"
-      
+
 
 permissions:
   contents: write
+
 
 jobs:
   build:
@@ -38,12 +38,23 @@ jobs:
     timeout-minutes: 60
 
     steps:
+
+      # ========================================
+      # Checkout
+      # ========================================
+
       - name: Checkout
         uses: actions/checkout@v6
+
+
+      # ========================================
+      # Install host dependencies
+      # ========================================
 
       - name: Install host dependencies
         run: |
           sudo apt-get update
+
           sudo apt-get install -y \
             build-essential \
             clang \
@@ -64,7 +75,8 @@ jobs:
             curl \
             qemu-utils \
             genisoimage
-            
+
+
       # ========================================
       # Verify files
       # ========================================
@@ -72,7 +84,7 @@ jobs:
       - name: Verify files
         run: |
           set -e
-          
+
           echo "Checking 99-custom.sh..."
           test -f files/etc/uci-defaults/99-custom.sh
 
@@ -81,37 +93,129 @@ jobs:
 
           chmod +x files/etc/uci-defaults/99-custom.sh
 
+          echo "Checking build-image.sh..."
+          test -f scripts/build-image.sh
+
+          echo "Checking build-image.sh syntax..."
+          bash -n scripts/build-image.sh
+
+          chmod +x scripts/build-image.sh
+
           echo "Files OK."
 
 
       # ========================================
       # Build image
+      #
+      # VERSION 不设置
+      # IMAGEBUILDER_URL 不设置
+      #
+      # 由 scripts/build-image.sh 自动：
+      #
+      #   1. 检测 ImmortalWrt 最新正式版本
+      #   2. 自动生成对应 ImageBuilder URL
+      #   3. 下载对应版本 ImageBuilder
+      #   4. 使用对应版本 package feeds
+      #   5. 构建镜像
       # ========================================
 
       - name: Build image
         env:
-          IMAGEBUILDER_URL: ${{ inputs.imagebuilder_url }}
           PREFLIGHT: ${{ inputs.preflight }}
           ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
           OUT_DIR: ${{ github.workspace }}/out
+          TARGET: x86/64
+          PROFILE: generic
         run: |
+          set -e
+
           chmod +x scripts/build-image.sh
+
           scripts/build-image.sh
+
+
+      # ========================================
+      # Read actual ImmortalWrt version
+      #
+      # build-image.sh 会生成：
+      #
+      # out/.build_info
+      #
+      # 里面包含：
+      #
+      # version=25.12.x
+      # target=x86/64
+      # profile=generic
+      # imagebuilder_url=...
+      # ========================================
+
+      - name: Read build information
+        id: build_info
+        run: |
+          set -e
+
+          test -f out/.build_info
+
+          VERSION="$(sed -n 's/^version=//p' out/.build_info)"
+          TARGET="$(sed -n 's/^target=//p' out/.build_info)"
+          PROFILE="$(sed -n 's/^profile=//p' out/.build_info)"
+
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: Unable to read ImmortalWrt version."
+            exit 1
+          fi
+
+          echo "ImmortalWrt version: $VERSION"
+          echo "Target: $TARGET"
+          echo "Profile: $PROFILE"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
+
+
+      # ========================================
+      # Prepare artifact
+      #
+      # 删除内部构建信息文件
+      # 避免上传到 Artifact / Release
+      # ========================================
+
+      - name: Prepare release files
+        run: |
+          set -e
+
+          rm -f out/.build_info
+          rm -f out/.extra_packages
+
+          echo "Final output:"
+          ls -lah out
+
+
+      # ========================================
+      # Upload artifact
+      # ========================================
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: immortalwrt-daede-x86-64
+          name: immortalwrt-${{ steps.build_info.outputs.version }}-x86-64
           path: out/*
           if-no-files-found: error
+
+
+      # ========================================
+      # Publish GitHub Release
+      # ========================================
 
       - name: Publish release
         if: inputs.publish_release == 'true'
         uses: ncipollo/release-action@v1
         with:
-          tag: daede-${{ github.run_number }}
-          name: daede 固件 ${{ github.run_number }}
+          tag: immortalwrt-${{ steps.build_info.outputs.version }}-run${{ github.run_number }}
+          name: ImmortalWrt ${{ steps.build_info.outputs.version }} 固件
           artifacts: out/*
           allowUpdates: true
           replacesArtifacts: true
           bodyFile: out/BUILD-MANIFEST.txt
+```
