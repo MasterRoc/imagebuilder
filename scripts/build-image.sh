@@ -31,8 +31,7 @@ DAEDE_APK_URL="${DAEDE_APK_URL:-}"
 # Supported:
 #  99-custom.sh
 
-
-NETWORK_SCRIPT="${NETWORK_SCRIPT:－99-custom.sh}"
+NETWORK_SCRIPT="99-custom.sh"
 
 # Do NOT put luci-app-daede here.
 # The APK is downloaded separately into ImageBuilder/packages.
