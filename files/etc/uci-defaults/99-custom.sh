@@ -9,6 +9,12 @@ echo "Starting 99-custom.sh at $(date)" >>$LOGFILE
 # 具体操作方法：网络——防火墙 在wan的入站数据 下拉选项里选择 拒绝 保存并应用即可。
 uci set firewall.@zone[1].input='ACCEPT'
 
+# 设置主机名映射，解决安卓原生 TV 无法联网的问题
+uci add dhcp domain
+uci set "dhcp.@domain[-1].name=time.android.com"
+uci set "dhcp.@domain[-1].ip=203.107.6.88"
+
+
 # 1. 先获取所有物理接口列表
 ifnames=""
 for iface in /sys/class/net/*; do
@@ -95,7 +101,9 @@ elif [ "$count" -gt 1 ]; then
         echo "default router ip is 192.168.100.1" >> $LOGFILE
     fi
 
-    
+    uci commit network
+fi
+
 # 设置所有网口可访问网页终端
 uci delete ttyd.@ttyd[0].interface
 
@@ -107,15 +115,5 @@ uci commit
 FILE_PATH="/etc/openwrt_release"
 NEW_DESCRIPTION="Packaged by master"
 sed -i "s/DISTRIB_DESCRIPTION='[^']*'/DISTRIB_DESCRIPTION='$NEW_DESCRIPTION'/" "$FILE_PATH"
-
-# 若luci-app-advancedplus (进阶设置)已安装 则去除zsh的调用 防止命令行报 /usb/bin/zsh: not found的提示
-if [ -f /usr/lib/lua/luci/controller/advancedplus.lua ]; then
-    sed -i '/\/usr\/bin\/zsh/d' /etc/profile
-    sed -i '/\/bin\/zsh/d' /etc/init.d/advancedplus
-    sed -i '/\/usr\/bin\/zsh/d' /etc/init.d/advancedplus
-    echo "fix ttyd show msg: /usb/bin/zsh: not found" >>$LOGFILE
-fi
-
-
 
 exit 0
