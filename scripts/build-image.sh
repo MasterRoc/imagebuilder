@@ -15,7 +15,7 @@ DAEDE_RELEASE_TAG="${DAEDE_RELEASE_TAG:-latest}"
 DAEDE_ARCH="${DAEDE_ARCH:-x86_64}"
 DAEDE_APK_URL="${DAEDE_APK_URL:-https://github.com/kenzok8/openwrt-daede/releases/download/v2026.08.21/luci-app-daede-1.14.7-r23-x86_64.apk}"
 
-EXTRA_PACKAGES="${EXTRA_PACKAGES:-luci luci-i18n-base-zh-cn openssh-sftp-server luci-i18n-ddns-zh-cn luci-i18n-ttyd-zh-cn luci-i18n-firewall-zh-cn luci-i18n-package-manager-zh-cn kmod-sched-core kmod-sched-bpf kmod-veth kmod-xdp-sockets-diag curl nano}"
+EXTRA_PACKAGES="${EXTRA_PACKAGES:-luci luci-i18n-base-zh-cn openssh-sftp-server luci-i18n-ddns-zh-cn luci-theme-argon luci-i18n-ttyd-zh-cn luci-i18n-firewall-zh-cn luci-i18n-package-manager-zh-cn kmod-sched-core kmod-sched-bpf kmod-veth kmod-xdp-sockets-diag curl nano}"
 
 WORK_DIR="${WORK_DIR:-$PWD/work}"
 IB_ARCHIVE="$WORK_DIR/imagebuilder.tar.zst"
