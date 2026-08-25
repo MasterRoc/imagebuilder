@@ -1,283 +1,235 @@
-name: Build daede image
+#!/usr/bin/env bash
+set -euo pipefail
 
-on:
-  workflow_dispatch:
-    inputs:
+VERSION="${VERSION:-25.12-SNAPSHOT}"
+TARGET="${TARGET:-x86/64}"
+PROFILE="${PROFILE:-generic}"
+IMAGEBUILDER_URL="${IMAGEBUILDER_URL:-t: "https://downloads.immortalwrt.org/releases/25.12.1/targets/x86/64/immortalwrt-imagebuilder-25.12.1-x86-64.Linux-x86_64.tar}"
+EXTRA_IMAGE_NAME="${EXTRA_IMAGE_NAME:-daede}"
+OUT_DIR="${OUT_DIR:-$PWD/out}"
+PREFLIGHT="${PREFLIGHT:-1}"
+ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-4096}"
+INSTALL_DAEDE="${INSTALL_DAEDE:-1}"
+DAEDE_REPO="${DAEDE_REPO:-kenzok8/openwrt-daede}"
+DAEDE_RELEASE_TAG="${DAEDE_RELEASE_TAG:-latest}"
+DAEDE_ARCH="${DAEDE_ARCH:-x86_64}"
+DAEDE_APK_URL="${DAEDE_APK_URL:-}"
 
-      publish_release:
-        description: 把生成的固件发布到 GitHub Release
-        required: true
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
+EXTRA_PACKAGES="${EXTRA_PACKAGES:-luci luci-i18n-base-zh-cn luci-i18n-firewall-zh-cn luci-i18n-ddns-zh-cn luci-i18n-package-manager-zh-cn kmod-sched-core kmod-sched-bpf kmod-veth kmod-xdp-sockets-diag curl nano}"
 
-      imagebuilder_url:
-        description: ImmortalWrt ImageBuilder 下载地址
-        required: true
-        default: "https://downloads.immortalwrt.org/releases/25.12.1/targets/x86/64/immortalwrt-imagebuilder-25.12.1-x86-64.Linux-x86_64.tar.zst"
+WORK_DIR="${WORK_DIR:-$PWD/work}"
+IB_ARCHIVE="$WORK_DIR/imagebuilder.tar.zst"
 
-      preflight:
-        description: 构建前先检查软件包清单是否齐全
-        required: true
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
+mkdir -p "$WORK_DIR" "$OUT_DIR"
 
-      rootfs_partsize:
-        description: 根文件系统分区大小（MB）
-        required: true
-        default: "4096"
+resolve_daede_apk_url() {
+  if [ -n "$DAEDE_APK_URL" ]; then
+    printf '%s\n' "$DAEDE_APK_URL"
+    return
+  fi
 
-      install_daede:
-        description: 把 luci-app-daede 打进固件
-        required: true
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
+  local release_api
+  if [ "$DAEDE_RELEASE_TAG" = "latest" ]; then
+    release_api="https://api.github.com/repos/$DAEDE_REPO/releases/latest"
+  else
+    release_api="https://api.github.com/repos/$DAEDE_REPO/releases/tags/$DAEDE_RELEASE_TAG"
+  fi
 
-      daede_release_tag:
-        description: luci-app-daede 的 Release 版本
-        required: true
-        default: "latest"
+  python3 - "$release_api" "$DAEDE_ARCH" <<'PY'
+import json
+import os
+import sys
+import urllib.request
 
-      daede_apk_url:
-        description: 可选，直接指定 luci-app-daede APK 下载地址
-        required: false
-        default: ""
+release_api, arch = sys.argv[1:3]
+request = urllib.request.Request(
+    release_api,
+    headers={
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "kenzok8-imagebuilder",
+    },
+)
+token = os.environ.get("GITHUB_TOKEN")
+if token:
+    request.add_header("Authorization", f"Bearer {token}")
 
-permissions:
-  contents: write
+with urllib.request.urlopen(request, timeout=30) as response:
+    release = json.load(response)
 
-jobs:
-  build:
-    name: Build ImmortalWrt x86-64
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
+suffix = f"-{arch}.apk"
+matches = [
+    asset.get("browser_download_url") or asset.get("url")
+    for asset in release.get("assets", [])
+    if asset.get("name", "").startswith("luci-app-daede-")
+    and asset.get("name", "").endswith(suffix)
+]
 
-    steps:
+if not matches:
+    tag = release.get("tag_name", release_api)
+    raise SystemExit(f"luci-app-daede APK for {arch} not found in {tag}")
 
-      # ======================================================
-      # Checkout
-      # ======================================================
+print(matches[0])
+PY
+}
 
-      - name: Checkout
-        uses: actions/checkout@v6
+install_daede_apk() {
+  case "$INSTALL_DAEDE" in
+    1|true|yes) ;;
+    *)
+      echo "Skipping luci-app-daede release APK download."
+      return
+      ;;
+  esac
 
-      # ======================================================
-      # Install dependencies
-      # ======================================================
+  local packages_dir="$WORK_DIR/imagebuilder/packages"
+  local daede_url
+  daede_url="$(resolve_daede_apk_url)"
+  mkdir -p "$packages_dir"
 
-      - name: Install host dependencies
-        run: |
-          set -e
+  # Strip the -<arch> suffix from the release filename. apk mkndx indexes the
+  # package under its canonical name-version.apk; if the file keeps the
+  # -x86_64 suffix the index entry points to a missing file and the build
+  # fails with "package mentioned in index not found".
+  local fname="${daede_url##*/}"
+  fname="${fname%-${DAEDE_ARCH}.apk}.apk"
 
-          sudo apt-get update
+  echo "Downloading luci-app-daede APK: $daede_url -> $fname"
+  curl -L --retry 8 --retry-delay 5 --connect-timeout 30 \
+    -o "$packages_dir/$fname" "$daede_url"
+}
 
-          sudo apt-get install -y \
-            build-essential \
-            clang \
-            flex \
-            bison \
-            gawk \
-            gettext \
-            git \
-            libncurses-dev \
-            libssl-dev \
-            python3 \
-            rsync \
-            unzip \
-            zstd \
-            file \
-            wget \
-            curl \
-            qemu-utils \
-            genisoimage
+if [ ! -s "$IB_ARCHIVE" ]; then
+  curl -L --retry 8 --retry-delay 5 --connect-timeout 30 \
+    -o "$IB_ARCHIVE" "$IMAGEBUILDER_URL"
+fi
 
-      # ======================================================
-      # Verify repository files
-      # ======================================================
+rm -rf "$WORK_DIR/imagebuilder"
+mkdir -p "$WORK_DIR/imagebuilder"
+tar --use-compress-program=unzstd -xf "$IB_ARCHIVE" -C "$WORK_DIR/imagebuilder" --strip-components=1
 
-      - name: Verify repository files
-        run: |
-          set -e
+cp -a files "$WORK_DIR/imagebuilder/files"
+install_daede_apk
 
-          echo "========================================"
-          echo "Checking repository"
-          echo "========================================"
+cd "$WORK_DIR/imagebuilder"
 
-          echo
-          echo "build-image.sh:"
-          test -f scripts/build-image.sh
+echo "Version: $VERSION"
+echo "Target: $TARGET"
+echo "Profile: $PROFILE"
+echo "Rootfs part size: ${ROOTFS_PARTSIZE}MB"
+echo "Extra packages: $EXTRA_PACKAGES"
+echo "Install daede APK: $INSTALL_DAEDE"
+echo "Daede release: $DAEDE_REPO@$DAEDE_RELEASE_TAG ($DAEDE_ARCH)"
+mkdir -p "$OUT_DIR"
+echo "extra_packages=$EXTRA_PACKAGES" > "$OUT_DIR/.extra_packages"
 
-          echo
-          echo "99-custom.sh:"
-          test -f files/etc/uci-defaults/99-custom.sh
+diagnose_failure() {
+  cat >&2 <<'EOF'
 
-          echo
-          echo "Making scripts executable..."
-          chmod +x scripts/build-image.sh
-          chmod +x files/etc/uci-defaults/99-custom.sh
+ImageBuilder failed.
 
-          echo
-          echo "Checking shell syntax..."
-          bash -n scripts/build-image.sh
+Common causes for this daede image:
+- The selected ImmortalWrt snapshot ImageBuilder and package feeds are out of sync.
+  Example: base packages require a newer libubox/libblobmsg-json than the public feed provides.
+- luci-app-daede or one of the dae/daed eBPF dependencies
+  (kmod-sched-bpf / kmod-veth / kmod-xdp-sockets-diag)
+  is missing from the selected target's kmod feed for the current kernel version.
+- The luci-app-daede release APK was not copied into the local ImageBuilder packages
+  directory, or its architecture does not match the selected target.
 
-          if command -v shellcheck >/dev/null 2>&1; then
-            shellcheck files/etc/uci-defaults/99-custom.sh || true
-          fi
+About BTF (no longer a blocker on 25.12):
+- ImmortalWrt 25.12 kernels enable CONFIG_DEBUG_INFO_BTF by default. dae/daed reads BTF
+  directly from /sys/kernel/btf/vmlinux at runtime and does NOT require a separate
+  vmlinux-btf package. Do not add vmlinux-btf to EXTRA_PACKAGES — it is not published
+  in the feed and ImageBuilder cannot build it.
+- If you ever target an older OpenWrt release whose kernel lacks built-in BTF, build
+  vmlinux-btf via a full SDK build first (ImageBuilder cannot compile packages).
 
-          echo
-          echo "Repository files:"
-          find files/etc/uci-defaults \
-            -maxdepth 1 \
-            -type f \
-            -printf '%M %p\n' \
-            | sort
+Next choices:
+- Retry later with the same 25.12.1 URL after ImmortalWrt feeds finish syncing.
+- Use a release/rc ImageBuilder URL and rebuild daede/dae/daed APKs against that release/rc.
+- Override DAEDE_RELEASE_TAG, DAEDE_ARCH, or DAEDE_APK_URL if you need a specific
+  luci-app-daede release asset.
+- Verify kmod-* packages exist for the target+kernel combo via:
+    make manifest PROFILE="$PROFILE" PACKAGES="$EXTRA_PACKAGES"
+EOF
+}
 
-      # ======================================================
-      # Show configuration
-      # ======================================================
+if [ "$PREFLIGHT" = "1" ] || [ "$PREFLIGHT" = "true" ]; then
+  echo "Running package manifest preflight..."
+  if ! make manifest PROFILE="$PROFILE" PACKAGES="$EXTRA_PACKAGES"; then
+    diagnose_failure
+    exit 1
+  fi
+fi
 
-      - name: Show build configuration
-        env:
-          IMAGEBUILDER_URL: ${{ inputs.imagebuilder_url }}
-          PREFLIGHT: ${{ inputs.preflight }}
-          ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
-          INSTALL_DAEDE: ${{ inputs.install_daede }}
-          DAEDE_RELEASE_TAG: ${{ inputs.daede_release_tag }}
-          DAEDE_APK_URL: ${{ inputs.daede_apk_url }}
-        run: |
-          echo "========================================"
-          echo "Build configuration"
-          echo "========================================"
+# Slim image formats: keep only squashfs EFI img.gz + qcow2 + vmdk
+sed -i \
+  -e 's/^CONFIG_TARGET_ROOTFS_EXT4FS=y/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/' \
+  -e 's/^CONFIG_TARGET_ROOTFS_TARGZ=y/# CONFIG_TARGET_ROOTFS_TARGZ is not set/' \
+  -e 's/^CONFIG_VDI_IMAGES=y/# CONFIG_VDI_IMAGES is not set/' \
+  -e 's/^CONFIG_VHDX_IMAGES=y/# CONFIG_VHDX_IMAGES is not set/' \
+  -e 's/^CONFIG_ISO_IMAGES=y/# CONFIG_ISO_IMAGES is not set/' \
+  -e 's/^CONFIG_GRUB_IMAGES=y/# CONFIG_GRUB_IMAGES is not set/' \
+  .config
 
-          echo "ImageBuilder URL : $IMAGEBUILDER_URL"
-          echo "Network script   : 99-custom.sh"
-          echo "Preflight        : $PREFLIGHT"
-          echo "Rootfs size      : ${ROOTFS_PARTSIZE}MB"
-          echo "Install Daede    : $INSTALL_DAEDE"
-          echo "Daede release    : $DAEDE_RELEASE_TAG"
+if ! make image \
+    PROFILE="$PROFILE" \
+    PACKAGES="$EXTRA_PACKAGES" \
+    FILES=files \
+    BIN_DIR="$OUT_DIR" \
+    EXTRA_IMAGE_NAME="$EXTRA_IMAGE_NAME" \
+    ROOTFS_PARTSIZE="$ROOTFS_PARTSIZE"; then
+  diagnose_failure
+  exit 1
+fi
 
-          if [ -n "$DAEDE_APK_URL" ]; then
-            echo "Daede APK URL    : custom"
-          else
-            echo "Daede APK URL    : automatic"
-          fi
+# Rename to short friendly names — the immortalwrt prefix is too long for GitHub UI
+	cd "$OUT_DIR"
+	for f in *-squashfs-combined-efi.img.gz;  do [ -f "$f" ] && mv "$f" daede-squashfs-efi.img.gz;  done
+	for f in *-squashfs-combined-efi.qcow2; do [ -f "$f" ] && mv "$f" daede-squashfs-efi.qcow2; done
+	for f in *-squashfs-combined-efi.vmdk;  do [ -f "$f" ] && mv "$f" daede-squashfs-efi.vmdk;  done
+	for f in *-kernel.bin;                do [ -f "$f" ] && mv "$f" daede-kernel.bin;            done
+	for f in *-rootfs.tar.gz;             do [ -f "$f" ] && mv "$f" daede-rootfs.tar.gz;         done
+	for f in *.manifest;                  do [ -f "$f" ] && mv "$f" daede.manifest;              done
+	for f in *.bom.cdx.json;              do [ -f "$f" ] && mv "$f" daede.bom.cdx.json;          done
+	for f in *.img.gz *.qcow2 *.vmdk *.bin *.tar.gz *.manifest *.bom.cdx.json; do
+	  [ -f "$f" ] || continue
+	  sha256sum "$f"
+	done > sha256sums
+	# Build date in CST for release notes
+	BUILD_DATE="$(TZ='Asia/Shanghai' date '+%F %H:%M CST')"
+	cat > BUILD-MANIFEST.txt <<BODYEOF
+## daede 固件 · ${EXTRA_IMAGE_NAME}
 
-          echo "========================================"
+基于 ImmortalWrt 25.12.1，x86-64 通用镜像，squashfs-only。
 
-      # ======================================================
-      # Build
-      # ======================================================
+### 推荐下载
 
-      - name: Build image
-        env:
-          IMAGEBUILDER_URL: ${{ inputs.imagebuilder_url }}
+| 格式 | 适用场景 | 文件 |
+|------|----------|------|
+| **img.gz** | 物理机 dd 写盘 / PVE 导入 | daede-squashfs-efi.img.gz |
+| **qcow2** | QEMU / Proxmox VE | daede-squashfs-efi.qcow2 |
+| **vmdk** | VMware ESXi / Workstation | daede-squashfs-efi.vmdk |
 
-          # build-image.sh already forces:
-          # NETWORK_SCRIPT="99-custom.sh"
-          #
-          # Do NOT pass inputs.network_script here.
+> 额外：`daede-rootfs.tar.gz` 裸文件系统，可用于 LXC 容器转换。
 
-          PREFLIGHT: ${{ inputs.preflight }}
-          ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
-          INSTALL_DAEDE: ${{ inputs.install_daede }}
-          DAEDE_RELEASE_TAG: ${{ inputs.daede_release_tag }}
-          DAEDE_APK_URL: ${{ inputs.daede_apk_url }}
+### 镜像详情
 
-          GITHUB_TOKEN: ${{ github.token }}
+- **系统类型**：squashfs（只读根 + overlay 可写层，抗断电）
+- **分区**：combined（含分区表 + 引导，直接 dd）
+- **启动**：EFI
+- **根分区大小**：${ROOTFS_PARTSIZE} MB
+- **构建日期**：${BUILD_DATE}
+- **ImageBuilder**：${IMAGEBUILDER_URL}
 
-          OUT_DIR: ${{ github.workspace }}/out
-          WORK_DIR: ${{ github.workspace }}/work
+### 预装软件
 
-        run: |
-          set -e
+\`$(cat "$OUT_DIR/.extra_packages" 2>/dev/null || echo "$EXTRA_PACKAGES")\`
 
-          chmod +x scripts/build-image.sh
+### 校验
 
-          ./scripts/build-image.sh
-
-      # ======================================================
-      # Verify output
-      # ======================================================
-
-      - name: Verify build output
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "Checking build output"
-          echo "========================================"
-
-          test -d out
-
-          echo
-          echo "Output files:"
-          ls -lah out
-
-          echo
-          echo "Required manifest:"
-          test -s out/BUILD-MANIFEST.txt
-
-          echo
-          echo "SHA256:"
-          test -s out/sha256sums
-
-          cat out/sha256sums
-
-          echo
-          echo "Checking firmware files..."
-
-          found=0
-
-          for file in \
-            out/daede-squashfs-efi.img.gz \
-            out/daede-squashfs-efi.qcow2 \
-            out/daede-squashfs-efi.vmdk
-          do
-            if [ -f "$file" ]; then
-              echo "FOUND: $file"
-              found=1
-            fi
-          done
-
-          if [ "$found" -ne 1 ]; then
-            echo "ERROR: No firmware image was generated."
-            exit 1
-          fi
-
-          echo
-          echo "Build output verification passed."
-
-      # ======================================================
-      # Upload artifact
-      # ======================================================
-
-      - name: Upload firmware artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: immortalwrt-daede-x86-64
-          path: out/*
-          if-no-files-found: error
-          retention-days: 30
-
-      # ======================================================
-      # Publish GitHub Release
-      # ======================================================
-
-      - name: Publish release
-        if: inputs.publish_release == 'true'
-        uses: ncipollo/release-action@v1
-        with:
-          tag: daede-${{ github.run_number }}
-          name: daede 固件 ${{ github.run_number }}
-          artifacts: out/*
-          allowUpdates: true
-          replacesArtifacts: true
-          bodyFile: out/BUILD-MANIFEST.txt
+\`\`\`bash
+sha256sum -c sha256sums --ignore-missing
+\`\`\`
+BODYEOF
+	ls -la "$OUT_DIR"
