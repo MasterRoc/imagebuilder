@@ -36,25 +36,52 @@ permissions:
 
 jobs:
   build:
-    name: Build ImmortalWrt x86-64
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
 
-      - name: Checkout
-        uses: actions/checkout@v4
+      # ========================================
+      # Checkout
+      # ========================================
 
-      - name: Install dependencies
+      - name: Checkout
+        uses: actions/checkout@v6
+
+
+      # ========================================
+      # Install host dependencies
+      # ========================================
+
+      - name: Install host dependencies
         run: |
-          set -e
           sudo apt-get update
+
           sudo apt-get install -y \
-            zstd \
+            build-essential \
+            clang \
+            flex \
+            bison \
+            gawk \
+            gettext \
+            git \
+            libncurses-dev \
+            libssl-dev \
+            python3 \
+            python3-distutils \
             rsync \
+            unzip \
+            zstd \
             file \
             wget \
-            curl
+            curl \
+            qemu-utils \
+            genisoimage
+
+
+      # ========================================
+      # Verify files
+      # ========================================
 
       - name: Verify files
         run: |
@@ -77,34 +104,49 @@ jobs:
 
           echo "Files OK."
 
+
+      # ========================================
+      # Build image
+      # ========================================
+
       - name: Build image
         env:
           IMAGEBUILDER_URL: ${{ inputs.imagebuilder_url }}
           PREFLIGHT: ${{ inputs.preflight }}
           ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
+
+          # Daed 本体不下载、不安装
+          INSTALL_DAEDE: "0"
+
+          # Daed APK 下载功能关闭
+          DAEDE_RELEASE_TAG: ""
+          DAEDE_APK_URL: ""
+
+          GITHUB_TOKEN: ${{ github.token }}
+
+          OUT_DIR: ${{ github.workspace }}/out
+
         run: |
-          set -eux
+          chmod +x scripts/build-image.sh
+          bash -n scripts/build-image.sh
+          scripts/build-image.sh
 
-          ./scripts/build-image.sh
 
-      - name: Show output
-        run: |
-          echo "========================================"
-          echo "Build output"
-          echo "========================================"
+      # ========================================
+      # Upload artifact
+      # ========================================
 
-          ls -lah out/
-
-          echo
-          echo "SHA256:"
-          cat out/sha256sums 2>/dev/null || true
-
-      - name: Upload firmware
-        uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
         with:
-          name: daede-x86-64
+          name: immortalwrt-daede-x86-64
           path: out/*
           if-no-files-found: error
+
+
+      # ========================================
+      # Publish release
+      # ========================================
 
       - name: Publish release
         if: inputs.publish_release == 'true'
@@ -115,3 +157,4 @@ jobs:
           artifacts: out/*
           allowUpdates: true
           replacesArtifacts: true
+          bodyFile: out/BUILD-MANIFEST.txt
