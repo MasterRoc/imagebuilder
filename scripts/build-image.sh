@@ -170,7 +170,6 @@ $(cat "$OUT_DIR/.extra_packages" 2>/dev/null || echo "$EXTRA_PACKAGES")
 
 ```bash
 sha256sum -c sha256sums --ignore-missing
-````
 
 BODYEOF
 
