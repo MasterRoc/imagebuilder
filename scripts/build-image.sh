@@ -79,7 +79,7 @@ PY
 #       echo "Skipping luci-app-daede release APK download."
 #      return
 #      ;;
-  esac
+#  esac
 
   local packages_dir="$WORK_DIR/imagebuilder/packages"
   local daede_url
