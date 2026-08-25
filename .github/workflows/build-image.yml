@@ -15,7 +15,7 @@ on:
         description: ImmortalWrt ImageBuilder 下载地址
         required: true
         default: "https://downloads.immortalwrt.org/releases/25.12.1/targets/x86/64/immortalwrt-imagebuilder-25.12.1-x86-64.Linux-x86_64.tar.zst"
-       preflight:
+      preflight:
         description: 构建前先检查软件包清单是否齐全
         required: true
         default: "true"
@@ -23,7 +23,7 @@ on:
         options:
           - "true"
           - "false"
-     rootfs_partsize:
+      rootfs_partsize:
         description: 根文件系统分区大小（MB）
         required: true
         default: "1024"
@@ -53,18 +53,8 @@ jobs:
     timeout-minutes: 60
 
     steps:
-
-      # ========================================
-      # Checkout
-      # ========================================
-
       - name: Checkout
         uses: actions/checkout@v6
-
-
-      # ========================================
-      # Install host dependencies
-      # ========================================
 
       - name: Install host dependencies
         run: |
@@ -89,8 +79,7 @@ jobs:
             curl \
             qemu-utils \
             genisoimage
-
-
+            
       # ========================================
       # Verify files
       # ========================================
