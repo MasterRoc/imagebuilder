@@ -142,7 +142,7 @@ fi
 # Daed install hook
 # ============================================================
 
-install_daede_apk
+# install_daede_apk
 
 
 # ============================================================
@@ -163,10 +163,17 @@ echo "Version:            $VERSION"
 echo "Target:             $TARGET"
 echo "Profile:            $PROFILE"
 echo "Rootfs part size:   ${ROOTFS_PARTSIZE}MB"
-echo "Install Daed:       $INSTALL_DAEDE"
-echo "Daed APK:           DISABLED"
+
+echo ""
+echo "Daed:"
+echo "  APK download:     DISABLED"
+echo "  Default install:  DISABLED"
+echo "  Runtime kmods:    ENABLED"
+
+echo ""
 echo "Extra packages:"
 echo "$EXTRA_PACKAGES" | tr ' ' '\n'
+
 echo "========================================"
 
 
