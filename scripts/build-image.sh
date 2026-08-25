@@ -31,7 +31,7 @@ EXTRA_PACKAGES="${EXTRA_PACKAGES:-\
 luci \
 luci-i18n-base-zh-cn \
 luci-i18n-ttyd-zh-cn \
-luci-app-daede\
+luci-app-daede \
 luci-theme-argon \
 luci-i18n-firewall-zh-cn \
 luci-i18n-ddns-zh-cn \
@@ -368,23 +368,9 @@ for f in *-squashfs-combined-efi.img.gz; do
 done
 
 
-for f in *-squashfs-combined-efi.qcow2; do
-  [ -f "$f" ] && mv "$f" daede-squashfs-efi.qcow2
-done
-
-
-for f in *-squashfs-combined-efi.vmdk; do
-  [ -f "$f" ] && mv "$f" daede-squashfs-efi.vmdk
-done
-
 
 for f in *-kernel.bin; do
   [ -f "$f" ] && mv "$f" daede-kernel.bin
-done
-
-
-for f in *-rootfs.tar.gz; do
-  [ -f "$f" ] && mv "$f" daede-rootfs.tar.gz
 done
 
 
@@ -406,8 +392,6 @@ echo "===== Generating SHA256 checksums ====="
 
 for f in \
   *.img.gz \
-  *.qcow2 \
-  *.vmdk \
   *.bin \
   *.tar.gz \
   *.manifest \
