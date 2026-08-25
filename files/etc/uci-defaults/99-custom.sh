@@ -9,6 +9,17 @@ echo "Starting 99-custom.sh at $(date)" >>$LOGFILE
 # 具体操作方法：网络——防火墙 在wan的入站数据 下拉选项里选择 拒绝 保存并应用即可。
 uci set firewall.@zone[1].input='ACCEPT'
 uci set firewall.@zone[1].forward='ACCEPT'
+uci set firewall.@defaults[0].input='ACCEPT'
+uci set firewall.@defaults[0].output='ACCEPT'
+uci set firewall.@defaults[0].forward='ACCEPT'
+# LAN DHCPv6 设置
+uci set dhcp.lan.dhcpv6='server'
+
+# RA flags：启用 managed-config 和 other-config
+uci add_list dhcp.lan.ra_flags='managed-config'
+uci add_list dhcp.lan.ra_flags='other-config'
+
+uci commit dhcp
 
 # 设置主机名映射，解决安卓原生 TV 无法联网的问题
 uci add dhcp domain
