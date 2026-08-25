@@ -9,65 +9,32 @@ on:
         required: false
         default: ""
         type: string
-
       rootfs_partsize:
         description: 根文件系统分区大小（MB）
         required: true
         default: "4096"
         type: string
 
-
 permissions:
   contents: write
-
 
 jobs:
   build:
     name: Build ImmortalWrt x86-64
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 120
 
     steps:
-
-      # ========================================
-      # Checkout
-      # ========================================
-
       - name: Checkout
         uses: actions/checkout@v6
 
-
-      # ========================================
-      # Install dependencies
-      # ========================================
-
-      - name: Install host dependencies
+      - name: Install dependencies
         run: |
-          set -e
-
           sudo apt-get update
-
           sudo apt-get install -y \
-            build-essential \
-            clang \
-            flex \
-            bison \
-            gawk \
-            gettext \
-            git \
-            libncurses-dev \
-            libssl-dev \
-            python3 \
-            python3-distutils \
-            rsync \
-            unzip \
-            zstd \
-            file \
-            wget \
-            curl \
-            qemu-utils \
-            genisoimage
-
+            build-essential clang flex bison gawk gettext git \
+            libncurses-dev libssl-dev python3 python3-distutils \
+            rsync unzip zstd file wget curl qemu-utils genisoimage
 
       # ========================================
       # Verify files 写入自用默认规则
@@ -95,91 +62,59 @@ jobs:
 
           echo "Files OK."
 
-
       - name: Build image
         env:
           VERSION: ${{ inputs.version }}
-          PREFLIGHT: "true"
           ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
-          OUT_DIR: ${{ github.workspace }}/out
           TARGET: x86/64
           PROFILE: generic
         run: |
-          set -e
+          set -ex
+          ./scripts/build-image.sh
 
-          chmod +x scripts/build-image.sh
-
-          echo "Requested ImmortalWrt version: ${VERSION:-latest}"
-
-          scripts/build-image.sh
-
-
-      - name: Read build information
-        id: build_info
-        shell: bash
+      - name: Prepare release
+        id: release
         run: |
           set -e
-
-          if [ ! -f "out/.build_info" ]; then
-            echo "ERROR: out/.build_info not found."
-            exit 1
-          fi
-
-          VERSION="$(sed -n 's/^version=//p' out/.build_info)"
-          TARGET="$(sed -n 's/^target=//p' out/.build_info)"
-          PROFILE="$(sed -n 's/^profile=//p' out/.build_info)"
-
+          mkdir -p release
+          
+          # 查找并复制文件
+          find . -name 'generic-squashfs-combined-efi.img.gz' -exec cp {} release/squashfs-efi.img.gz \;
+          find . -name 'generic-squashfs-combined-efi.vmdk' -exec cp {} release/squashfs-efi.vmdk \;
+          
+          # 验证文件存在
+          test -f release/squashfs-efi.img.gz || { echo "ERROR: squashfs-efi.img.gz not found"; exit 1; }
+          test -f release/squashfs-efi.vmdk || { echo "ERROR: squashfs-efi.vmdk not found"; exit 1; }
+          
+          # 显示文件信息
+          ls -lh release/
+          
+          # 提取版本号
+          VERSION="${{ inputs.version }}"
           if [ -z "$VERSION" ]; then
-            echo "ERROR: ImmortalWrt version is empty."
-            exit 1
+            VERSION=$(curl -fsSL "https://downloads.immortalwrt.org/releases/" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -1)
           fi
-
-          echo "ImmortalWrt version: $VERSION"
-          echo "Target: $TARGET"
-          echo "Profile: $PROFILE"
-
+          
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
-          echo "profile=$PROFILE" >> "$GITHUB_OUTPUT"
-
-
-      # ========================================
-      # Verify output
-      # ========================================
-
-      - name: Verify build output
-        run: |
-          set -e
-
-          echo "Build output:"
-          ls -lah out
-
-          test -f out/BUILD-MANIFEST.txt
-          test -f out/sha256sums
-
-
-      # ========================================
-      # Upload artifact
-      # ========================================
+          echo "Build Version: $VERSION"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: immortalwrt-${{ steps.build_info.outputs.version }}-x86-64
-          path: out/*
+          name: immortalwrt-${{ steps.release.outputs.version }}-x86-64
+          path: release/*
           if-no-files-found: error
-
-
-      # ========================================
-      # Publish GitHub Release
-      # ========================================
 
       - name: Publish release
         uses: ncipollo/release-action@v1
         with:
-          tag: immortalwrt-${{ steps.build_info.outputs.version }}-run${{ github.run_number }}
-          name: ImmortalWrt ${{ steps.build_info.outputs.version }} 固件
-          artifacts: out/*
+          tag: immortalwrt-${{ steps.release.outputs.version }}-run${{ github.run_number }}
+          name: ImmortalWrt ${{ steps.release.outputs.version }} x86-64
+          artifacts: release/*
           allowUpdates: true
           replacesArtifacts: true
-          bodyFile: out/BUILD-MANIFEST.txt
+          body: |
+            ImmortalWrt x86-64 Build
+            - Target: x86/64
+            - Profile: generic
+            - Rootfs Partition Size: ${{ inputs.rootfs_partsize }} MB
