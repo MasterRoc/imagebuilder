@@ -93,10 +93,6 @@ jobs:
           IMAGEBUILDER_URL: ${{ inputs.imagebuilder_url }}
           PREFLIGHT: ${{ inputs.preflight }}
           ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
-          INSTALL_DAEDE: ${{ inputs.install_daede }}
-          DAEDE_RELEASE_TAG: ${{ inputs.daede_release_tag }}
-          DAEDE_APK_URL: ${{ inputs.daede_apk_url }}
-          GITHUB_TOKEN: ${{ github.token }}
           OUT_DIR: ${{ github.workspace }}/out
         run: |
           chmod +x scripts/build-image.sh
