@@ -72,24 +72,20 @@ print(matches[0])
 PY
 }
 
-# install_daede_apk() {
-#  case "$INSTALL_DAEDE" in
-#    1|true|yes) ;;
-#     *)
-#       echo "Skipping luci-app-daede release APK download."
-#      return
-#      ;;
-#  esac
+install_daede_apk() {
+  case "$INSTALL_DAEDE" in
+    1|true|yes) ;;
+    *)
+      echo "Skipping luci-app-daede release APK download."
+      return
+      ;;
+  esac
 
   local packages_dir="$WORK_DIR/imagebuilder/packages"
   local daede_url
   daede_url="$(resolve_daede_apk_url)"
   mkdir -p "$packages_dir"
 
-  # Strip the -<arch> suffix from the release filename. apk mkndx indexes the
-  # package under its canonical name-version.apk; if the file keeps the
-  # -x86_64 suffix the index entry points to a missing file and the build
-  # fails with "package mentioned in index not found".
   local fname="${daede_url##*/}"
   fname="${fname%-${DAEDE_ARCH}.apk}.apk"
 
