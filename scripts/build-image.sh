@@ -4,176 +4,324 @@ set -euo pipefail
 VERSION="${VERSION:-25.12.1}"
 TARGET="${TARGET:-x86/64}"
 PROFILE="${PROFILE:-generic}"
+
 IMAGEBUILDER_URL="${IMAGEBUILDER_URL:-https://downloads.immortalwrt.org/releases/25.12.1/targets/x86/64/immortalwrt-imagebuilder-25.12.1-x86-64.Linux-x86_64.tar}"
+
 EXTRA_IMAGE_NAME="${EXTRA_IMAGE_NAME:-daede}"
 OUT_DIR="${OUT_DIR:-$PWD/out}"
 PREFLIGHT="${PREFLIGHT:-1}"
 ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-4096}"
-INSTALL_DAEDE="${INSTALL_DAEDE:-0}"
-DAEDE_REPO="${DAEDE_REPO:-kenzok8/openwrt-daede}"
-DAEDE_RELEASE_TAG="${DAEDE_RELEASE_TAG:-latest}"
-DAEDE_ARCH="${DAEDE_ARCH:-x86_64}"
-DAEDE_APK_URL="${DAEDE_APK_URL:-}"
 
-EXTRA_PACKAGES="${EXTRA_PACKAGES:-luci luci-i18n-base-zh-cn luci-i18n-ttyd-zh-cn openssh-sftp-server luci-theme-argon luci-i18n-firewall-zh-cn luci-i18n-ddns-zh-cn luci-i18n-package-manager-zh-cn kmod-sched-core kmod-sched-bpf kmod-veth kmod-xdp-sockets-diag curl nano}"
+# ============================================================
+# Daed
+# ============================================================
+# 0 = 不下载、不安装 Daed
+# 1 = 如果以后需要，可通过环境变量手动启用
+INSTALL_DAEDE="${INSTALL_DAEDE:-0}"
+
+# ============================================================
+# Packages
+# ============================================================
+# 注意：
+# 这里保留 Daed/dae 相关的 kmod 依赖。
+# 但不会安装 luci-app-daede，也不会下载 Daed APK。
+# ============================================================
+
+EXTRA_PACKAGES="${EXTRA_PACKAGES:-\
+luci \
+luci-i18n-base-zh-cn \
+luci-i18n-ttyd-zh-cn \
+openssh-sftp-server \
+luci-theme-argon \
+luci-i18n-firewall-zh-cn \
+luci-i18n-ddns-zh-cn \
+luci-i18n-package-manager-zh-cn \
+kmod-sched-core \
+kmod-sched-bpf \
+kmod-veth \
+kmod-xdp-sockets-diag \
+curl \
+nano}"
 
 WORK_DIR="${WORK_DIR:-$PWD/work}"
 IB_ARCHIVE="$WORK_DIR/imagebuilder.tar.zst"
 
 mkdir -p "$WORK_DIR" "$OUT_DIR"
 
-resolve_daede_apk_url() {
-  if [ -n "$DAEDE_APK_URL" ]; then
-    printf '%s\n' "$DAEDE_APK_URL"
-    return
-  fi
 
-  local release_api
-  if [ "$DAEDE_RELEASE_TAG" = "latest" ]; then
-    release_api="https://api.github.com/repos/$DAEDE_REPO/releases/latest"
-  else
-    release_api="https://api.github.com/repos/$DAEDE_REPO/releases/tags/$DAEDE_RELEASE_TAG"
-  fi
-
-  python3 - "$release_api" "$DAEDE_ARCH" <<'PY'
-import json
-import os
-import sys
-import urllib.request
-
-release_api, arch = sys.argv[1:3]
-request = urllib.request.Request(
-    release_api,
-    headers={
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "kenzok8-imagebuilder",
-    },
-)
-token = os.environ.get("GITHUB_TOKEN")
-if token:
-    request.add_header("Authorization", f"Bearer {token}")
-
-with urllib.request.urlopen(request, timeout=30) as response:
-    release = json.load(response)
-
-suffix = f"-{arch}.apk"
-matches = [
-    asset.get("browser_download_url") or asset.get("url")
-    for asset in release.get("assets", [])
-    if asset.get("name", "").startswith("luci-app-daede-")
-    and asset.get("name", "").endswith(suffix)
-]
-
-if not matches:
-    tag = release.get("tag_name", release_api)
-    raise SystemExit(f"luci-app-daede APK for {arch} not found in {tag}")
-
-print(matches[0])
-PY
-}
+# ============================================================
+# Daed download/install
+# ============================================================
+# 当前版本默认完全不下载、不安装 Daed。
+#
+# 如果以后需要恢复 Daed 下载逻辑，可以重新增加：
+# resolve_daede_apk_url()
+# install_daede_apk()
+#
+# 目前不执行任何 Daed APK 下载。
+# ============================================================
 
 install_daede_apk() {
   case "$INSTALL_DAEDE" in
-    1|true|yes) ;;
+    1|true|yes)
+      echo "WARNING: INSTALL_DAEDE=$INSTALL_DAEDE"
+      echo "Daed APK download/install is disabled in this build-image.sh."
+      echo "Only Daed runtime dependencies are retained."
+      ;;
     *)
-      echo "Skipping luci-app-daede release APK download."
-      return
+      echo "Skipping luci-app-daede download/install."
       ;;
   esac
-
-  local packages_dir="$WORK_DIR/imagebuilder/packages"
-  local daede_url
-  daede_url="$(resolve_daede_apk_url)"
-  mkdir -p "$packages_dir"
-
-  # Strip the -<arch> suffix from the release filename. apk mkndx indexes the
-  # package under its canonical name-version.apk; if the file keeps the
-  # -x86_64 suffix the index entry points to a missing file and the build
-  # fails with "package mentioned in index not found".
-  local fname="${daede_url##*/}"
-  fname="${fname%-${DAEDE_ARCH}.apk}.apk"
-
-  echo "Downloading luci-app-daede APK: $daede_url -> $fname"
-  curl -L --retry 8 --retry-delay 5 --connect-timeout 30 \
-    -o "$packages_dir/$fname" "$daede_url"
 }
 
+
+# ============================================================
+# Download ImageBuilder
+# ============================================================
+
 if [ ! -s "$IB_ARCHIVE" ]; then
-  curl -L --retry 8 --retry-delay 5 --connect-timeout 30 \
-    -o "$IB_ARCHIVE" "$IMAGEBUILDER_URL"
+  echo "===== Downloading ImageBuilder ====="
+  echo "URL: $IMAGEBUILDER_URL"
+
+  curl -L \
+    --retry 8 \
+    --retry-delay 5 \
+    --connect-timeout 30 \
+    -o "$IB_ARCHIVE" \
+    "$IMAGEBUILDER_URL"
+else
+  echo "===== Using cached ImageBuilder ====="
+  echo "$IB_ARCHIVE"
 fi
+
+
+# ============================================================
+# Extract ImageBuilder
+# ============================================================
+
+echo "===== Extracting ImageBuilder ====="
 
 rm -rf "$WORK_DIR/imagebuilder"
 mkdir -p "$WORK_DIR/imagebuilder"
-tar --use-compress-program=unzstd -xf "$IB_ARCHIVE" -C "$WORK_DIR/imagebuilder" --strip-components=1
+
+tar \
+  --use-compress-program=unzstd \
+  -xf "$IB_ARCHIVE" \
+  -C "$WORK_DIR/imagebuilder" \
+  --strip-components=1
+
+
+# ============================================================
+# Copy custom files
+# ============================================================
+
+echo "===== Copying custom files ====="
 
 cp -a files "$WORK_DIR/imagebuilder/files"
 
-echo "===== Checking 99-custom.sh ====="
-nl -ba files/etc/uci-defaults/99-custom.sh
 
-echo "===== Syntax check 99-custom.sh ====="
-sh -n files/etc/uci-defaults/99-custom.sh
+# ============================================================
+# Check 99-custom.sh
+# ============================================================
+
+echo "===== Checking 99-custom.sh ====="
+
+if [ -f "files/etc/uci-defaults/99-custom.sh" ]; then
+  nl -ba files/etc/uci-defaults/99-custom.sh
+
+  echo "===== Syntax check 99-custom.sh ====="
+
+  sh -n files/etc/uci-defaults/99-custom.sh
+
+  echo "99-custom.sh syntax OK."
+else
+  echo "No files/etc/uci-defaults/99-custom.sh found."
+fi
+
+
+# ============================================================
+# Daed install hook
+# ============================================================
 
 install_daede_apk
 
+
+# ============================================================
+# Enter ImageBuilder
+# ============================================================
+
 cd "$WORK_DIR/imagebuilder"
 
-echo "Version: $VERSION"
-echo "Target: $TARGET"
-echo "Profile: $PROFILE"
-echo "Rootfs part size: ${ROOTFS_PARTSIZE}MB"
-echo "Extra packages: $EXTRA_PACKAGES"
-echo "Install daede APK: $INSTALL_DAEDE"
-echo "Daede release: $DAEDE_REPO@$DAEDE_RELEASE_TAG ($DAEDE_ARCH)"
+
+# ============================================================
+# Build information
+# ============================================================
+
+echo "========================================"
+echo "        ImmortalWrt ImageBuilder"
+echo "========================================"
+echo "Version:            $VERSION"
+echo "Target:             $TARGET"
+echo "Profile:            $PROFILE"
+echo "Rootfs part size:   ${ROOTFS_PARTSIZE}MB"
+echo "Install Daed:       $INSTALL_DAEDE"
+echo "Daed APK:           DISABLED"
+echo "Extra packages:"
+echo "$EXTRA_PACKAGES" | tr ' ' '\n'
+echo "========================================"
+
+
 mkdir -p "$OUT_DIR"
+
 echo "extra_packages=$EXTRA_PACKAGES" > "$OUT_DIR/.extra_packages"
+
+
+# ============================================================
+# Failure diagnostics
+# ============================================================
 
 diagnose_failure() {
   cat >&2 <<'EOF'
 
+========================================
 ImageBuilder failed.
+========================================
 
-Common causes for this daede image:
-- The selected ImmortalWrt snapshot ImageBuilder and package feeds are out of sync.
-  Example: base packages require a newer libubox/libblobmsg-json than the public feed provides.
-- luci-app-daede or one of the dae/daed eBPF dependencies
-  (kmod-sched-bpf / kmod-veth / kmod-xdp-sockets-diag)
-  is missing from the selected target's kmod feed for the current kernel version.
-- The luci-app-daede release APK was not copied into the local ImageBuilder packages
-  directory, or its architecture does not match the selected target.
+Possible causes:
 
-About BTF (no longer a blocker on 25.12):
-- ImmortalWrt 25.12 kernels enable CONFIG_DEBUG_INFO_BTF by default. dae/daed reads BTF
-  directly from /sys/kernel/btf/vmlinux at runtime and does NOT require a separate
-  vmlinux-btf package. Do not add vmlinux-btf to EXTRA_PACKAGES — it is not published
-  in the feed and ImageBuilder cannot build it.
-- If you ever target an older OpenWrt release whose kernel lacks built-in BTF, build
-  vmlinux-btf via a full SDK build first (ImageBuilder cannot compile packages).
+1. The selected ImmortalWrt ImageBuilder and package
+   feeds are out of sync.
 
-Next choices:
-- Retry later with the same 25.12.1 URL after ImmortalWrt feeds finish syncing.
-- Use a release/rc ImageBuilder URL and rebuild daede/dae/daed APKs against that release/rc.
-- Override DAEDE_RELEASE_TAG, DAEDE_ARCH, or DAEDE_APK_URL if you need a specific
-  luci-app-daede release asset.
-- Verify kmod-* packages exist for the target+kernel combo via:
-   echo "===== Checking packages ====="
-echo "$EXTRA_PACKAGES" | tr ' ' '\n'
+2. One or more requested packages are not available
+   for the selected target/kernel combination.
 
-echo "===== ImageBuilder manifest ====="
-make manifest PROFILE="$PROFILE" PACKAGES="$EXTRA_PACKAGES"
+3. A kmod-* package does not match the kernel version
+   used by this ImageBuilder.
+
+4. A package dependency cannot be satisfied.
+
+Daed status:
+
+- luci-app-daede is NOT downloaded.
+- Daed is NOT installed by default.
+- Daed-related kmod dependencies remain enabled.
+
+Important:
+
+The following packages are intentionally retained because
+they may be required by dae/daed:
+
+- kmod-sched-core
+- kmod-sched-bpf
+- kmod-veth
+- kmod-xdp-sockets-diag
+
+If the build fails during kmod verification, check which
+specific package is reported as unavailable.
+
+BTF:
+
+ImmortalWrt 25.12 kernels enable CONFIG_DEBUG_INFO_BTF.
+Do NOT add vmlinux-btf to EXTRA_PACKAGES.
+
+ImageBuilder cannot compile missing kernel modules.
+The kmod package must exist in the feed matching the
+ImageBuilder kernel.
+
+========================================
+
 EOF
 }
 
+
+# ============================================================
+# Package preflight
+# ============================================================
+
 if [ "$PREFLIGHT" = "1" ] || [ "$PREFLIGHT" = "true" ]; then
+
+  echo "========================================"
   echo "Running package manifest preflight..."
-  if ! make manifest PROFILE="$PROFILE" PACKAGES="$EXTRA_PACKAGES"; then
+  echo "========================================"
+
+  echo "===== All requested packages ====="
+  echo "$EXTRA_PACKAGES" | tr ' ' '\n'
+
+  echo ""
+  echo "===== Verify kmod packages ====="
+
+  for pkg in $EXTRA_PACKAGES; do
+
+    case "$pkg" in
+
+      kmod-*)
+        echo "----------------------------------------"
+        echo "Checking package: $pkg"
+
+        if make manifest \
+            PROFILE="$PROFILE" \
+            PACKAGES="$pkg"; then
+
+          echo "OK: $pkg"
+
+        else
+
+          echo "::error::Package verification failed: $pkg"
+
+          diagnose_failure
+
+          exit 1
+
+        fi
+        ;;
+
+    esac
+
+  done
+
+  echo "----------------------------------------"
+  echo "===== All kmod packages verified ====="
+  echo ""
+
+
+  # ==========================================================
+  # Verify all packages
+  # ==========================================================
+  #
+  # 注意：
+  # kmod 已经逐个检查。
+  #
+  # 这里再检查整个 EXTRA_PACKAGES。
+  # 如果某个普通 LuCI 软件包不存在，也能在这里发现。
+  # ==========================================================
+
+  echo "===== Verify complete package list ====="
+
+  if make manifest \
+      PROFILE="$PROFILE" \
+      PACKAGES="$EXTRA_PACKAGES"; then
+
+    echo "===== Package manifest OK ====="
+
+  else
+
+    echo "::error::Complete package manifest verification failed."
+
     diagnose_failure
+
     exit 1
+
   fi
+
 fi
 
-# Slim image formats: keep only squashfs EFI img.gz + qcow2 + vmdk
+
+# ============================================================
+# Slim image formats
+# ============================================================
+
+echo "===== Configuring slim image formats ====="
+
 sed -i \
   -e 's/^CONFIG_TARGET_ROOTFS_EXT4FS=y/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/' \
   -e 's/^CONFIG_TARGET_ROOTFS_TARGZ=y/# CONFIG_TARGET_ROOTFS_TARGZ is not set/' \
@@ -183,6 +331,15 @@ sed -i \
   -e 's/^CONFIG_GRUB_IMAGES=y/# CONFIG_GRUB_IMAGES is not set/' \
   .config
 
+
+# ============================================================
+# Build image
+# ============================================================
+
+echo "========================================"
+echo "Starting ImageBuilder..."
+echo "========================================"
+
 if ! make image \
     PROFILE="$PROFILE" \
     PACKAGES="$EXTRA_PACKAGES" \
@@ -190,26 +347,87 @@ if ! make image \
     BIN_DIR="$OUT_DIR" \
     EXTRA_IMAGE_NAME="$EXTRA_IMAGE_NAME" \
     ROOTFS_PARTSIZE="$ROOTFS_PARTSIZE"; then
+
   diagnose_failure
+
   exit 1
 fi
 
-# Rename to short friendly names — the immortalwrt prefix is too long for GitHub UI
-	cd "$OUT_DIR"
-	for f in *-squashfs-combined-efi.img.gz;  do [ -f "$f" ] && mv "$f" daede-squashfs-efi.img.gz;  done
-	for f in *-squashfs-combined-efi.qcow2; do [ -f "$f" ] && mv "$f" daede-squashfs-efi.qcow2; done
-	for f in *-squashfs-combined-efi.vmdk;  do [ -f "$f" ] && mv "$f" daede-squashfs-efi.vmdk;  done
-	for f in *-kernel.bin;                do [ -f "$f" ] && mv "$f" daede-kernel.bin;            done
-	for f in *-rootfs.tar.gz;             do [ -f "$f" ] && mv "$f" daede-rootfs.tar.gz;         done
-	for f in *.manifest;                  do [ -f "$f" ] && mv "$f" daede.manifest;              done
-	for f in *.bom.cdx.json;              do [ -f "$f" ] && mv "$f" daede.bom.cdx.json;          done
-	for f in *.img.gz *.qcow2 *.vmdk *.bin *.tar.gz *.manifest *.bom.cdx.json; do
-	  [ -f "$f" ] || continue
-	  sha256sum "$f"
-	done > sha256sums
-	# Build date in CST for release notes
-	BUILD_DATE="$(TZ='Asia/Shanghai' date '+%F %H:%M CST')"
-	cat > BUILD-MANIFEST.txt <<BODYEOF
+
+# ============================================================
+# Rename output files
+# ============================================================
+
+echo "===== Renaming output files ====="
+
+cd "$OUT_DIR"
+
+
+for f in *-squashfs-combined-efi.img.gz; do
+  [ -f "$f" ] && mv "$f" daede-squashfs-efi.img.gz
+done
+
+
+for f in *-squashfs-combined-efi.qcow2; do
+  [ -f "$f" ] && mv "$f" daede-squashfs-efi.qcow2
+done
+
+
+for f in *-squashfs-combined-efi.vmdk; do
+  [ -f "$f" ] && mv "$f" daede-squashfs-efi.vmdk
+done
+
+
+for f in *-kernel.bin; do
+  [ -f "$f" ] && mv "$f" daede-kernel.bin
+done
+
+
+for f in *-rootfs.tar.gz; do
+  [ -f "$f" ] && mv "$f" daede-rootfs.tar.gz
+done
+
+
+for f in *.manifest; do
+  [ -f "$f" ] && mv "$f" daede.manifest
+done
+
+
+for f in *.bom.cdx.json; do
+  [ -f "$f" ] && mv "$f" daede.bom.cdx.json
+done
+
+
+# ============================================================
+# SHA256
+# ============================================================
+
+echo "===== Generating SHA256 checksums ====="
+
+for f in \
+  *.img.gz \
+  *.qcow2 \
+  *.vmdk \
+  *.bin \
+  *.tar.gz \
+  *.manifest \
+  *.bom.cdx.json; do
+
+  [ -f "$f" ] || continue
+
+  sha256sum "$f"
+
+done > sha256sums
+
+
+# ============================================================
+# Build manifest
+# ============================================================
+
+BUILD_DATE="$(TZ='Asia/Shanghai' date '+%F %H:%M CST')"
+
+
+cat > BUILD-MANIFEST.txt <<BODYEOF
 ## daede 固件 · ${EXTRA_IMAGE_NAME}
 
 基于 ImmortalWrt 25.12.1，x86-64 通用镜像，squashfs-only。
@@ -222,7 +440,7 @@ fi
 | **qcow2** | QEMU / Proxmox VE | daede-squashfs-efi.qcow2 |
 | **vmdk** | VMware ESXi / Workstation | daede-squashfs-efi.vmdk |
 
-> 额外：`daede-rootfs.tar.gz` 裸文件系统，可用于 LXC 容器转换。
+> 额外：\`daede-rootfs.tar.gz\` 裸文件系统，可用于 LXC 容器转换。
 
 ### 镜像详情
 
@@ -232,6 +450,12 @@ fi
 - **根分区大小**：${ROOTFS_PARTSIZE} MB
 - **构建日期**：${BUILD_DATE}
 - **ImageBuilder**：${IMAGEBUILDER_URL}
+
+### Daed
+
+- **Daed APK 下载**：禁用
+- **Daed 默认安装**：禁用
+- **Daed 相关 kmod 依赖**：保留
 
 ### 预装软件
 
@@ -243,4 +467,31 @@ fi
 sha256sum -c sha256sums --ignore-missing
 \`\`\`
 BODYEOF
-	ls -la "$OUT_DIR"
+
+
+# ============================================================
+# Final output
+# ============================================================
+
+echo ""
+echo "========================================"
+echo "         BUILD SUCCESS"
+echo "========================================"
+echo ""
+
+ls -lah "$OUT_DIR"
+
+echo ""
+echo "===== SHA256 ====="
+cat "$OUT_DIR/sha256sums"
+
+echo ""
+echo "===== Build manifest ====="
+cat "$OUT_DIR/BUILD-MANIFEST.txt"
+
+echo ""
+echo "========================================"
+echo "Daed APK download: DISABLED"
+echo "Daed default installation: DISABLED"
+echo "Daed dependencies: RETAINED"
+echo "========================================"
