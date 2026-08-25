@@ -108,6 +108,13 @@ mkdir -p "$WORK_DIR/imagebuilder"
 tar --use-compress-program=unzstd -xf "$IB_ARCHIVE" -C "$WORK_DIR/imagebuilder" --strip-components=1
 
 cp -a files "$WORK_DIR/imagebuilder/files"
+
+echo "===== Checking 99-custom.sh ====="
+nl -ba files/etc/uci-defaults/99-custom.sh
+
+echo "===== Syntax check 99-custom.sh ====="
+sh -n files/etc/uci-defaults/99-custom.sh
+
 install_daede_apk
 
 cd "$WORK_DIR/imagebuilder"
