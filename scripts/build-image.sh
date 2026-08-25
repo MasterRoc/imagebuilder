@@ -1,4 +1,3 @@
-````bash
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -168,12 +167,8 @@ $(cat "$OUT_DIR/.extra_packages" 2>/dev/null || echo "$EXTRA_PACKAGES")
 
 ### 校验
 
-```bash
+\`\`\`bash
 sha256sum -c sha256sums --ignore-missing
-
+\`\`\`
 BODYEOF
-
-ls -la "$OUT_DIR"
-
-```
-```
+	ls -la "$OUT_DIR"
