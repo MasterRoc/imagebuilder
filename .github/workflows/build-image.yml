@@ -24,9 +24,7 @@ on:
         type: choice
         options:
           - "99-custom.sh"
-          - "99-daed-test-network"
-          - "none"
-
+          
       preflight:
         description: 构建前先检查软件包清单是否齐全
         required: true
