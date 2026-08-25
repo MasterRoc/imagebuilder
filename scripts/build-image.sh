@@ -157,7 +157,11 @@ Next choices:
 - Override DAEDE_RELEASE_TAG, DAEDE_ARCH, or DAEDE_APK_URL if you need a specific
   luci-app-daede release asset.
 - Verify kmod-* packages exist for the target+kernel combo via:
-    make manifest PROFILE="$PROFILE" PACKAGES="$EXTRA_PACKAGES"
+   echo "===== Checking packages ====="
+echo "$EXTRA_PACKAGES" | tr ' ' '\n'
+
+echo "===== ImageBuilder manifest ====="
+make manifest PROFILE="$PROFILE" PACKAGES="$EXTRA_PACKAGES"
 EOF
 }
 
