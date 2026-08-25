@@ -218,4 +218,3 @@ jobs:
           allowUpdates: true
           replacesArtifacts: true
           bodyFile: out/BUILD-MANIFEST.txt
-```
