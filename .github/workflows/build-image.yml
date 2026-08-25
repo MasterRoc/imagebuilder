@@ -98,20 +98,13 @@ jobs:
       - name: Verify files
         run: |
           set -e
-
-          echo "Checking build-image.sh..."
-          test -f scripts/build-image.sh
-
+          
           echo "Checking 99-custom.sh..."
           test -f files/etc/uci-defaults/99-custom.sh
-
-          echo "Checking build-image.sh syntax..."
-          bash -n scripts/build-image.sh
 
           echo "Checking 99-custom.sh syntax..."
           sh -n files/etc/uci-defaults/99-custom.sh
 
-          chmod +x scripts/build-image.sh
           chmod +x files/etc/uci-defaults/99-custom.sh
 
           echo "Files OK."
