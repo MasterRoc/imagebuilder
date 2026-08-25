@@ -142,7 +142,7 @@ get_imagebuilder_url() {
 
     get_latest_version
 
-    IMAGEBUILDER_URL="https://downloads.immortalwrt.org/releases/${VERSION}/targets/x86/64/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.zst"
+    IMAGEBUILDER_URL="${BASE_URL}/releases/${VERSION}/targets/${TARGET}/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.zst"
 
     log "ImageBuilder URL:"
     log "$IMAGEBUILDER_URL"
