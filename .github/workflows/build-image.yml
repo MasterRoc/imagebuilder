@@ -6,7 +6,7 @@ on:
       publish_release:
         description: 把生成的固件发布到 GitHub Release
         required: true
-        default: "true"
+        default: "false"
         type: choice
         options:
           - "true"
@@ -20,7 +20,7 @@ on:
       preflight:
         description: 构建前先检查软件包清单是否齐全
         required: true
-        default: "true"
+        default: "false"
         type: choice
         options:
           - "true"
@@ -31,102 +31,78 @@ on:
         required: true
         default: "4096"
 
-      install_daede:
-        description: 把 luci-app-daede 打进固件
-        required: true
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
-
-      daede_release_tag:
-        description: luci-app-daede 的 release 版本，默认 latest 取最新
-        required: true
-        default: "latest"
-
-      daede_apk_url:
-        description: 可选，直接指定 luci-app-daede 的 APK 下载地址
-        required: false
-        default: ""
-
 permissions:
   contents: write
 
 jobs:
   build:
+    name: Build ImmortalWrt x86-64
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 30
 
     steps:
+
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
-      - name: Install host dependencies
+      - name: Install dependencies
         run: |
+          set -e
           sudo apt-get update
-
           sudo apt-get install -y \
-            build-essential \
-            clang \
-            flex \
-            bison \
-            gawk \
-            gettext \
-            git \
-            libncurses-dev \
-            libssl-dev \
-            python3 \
-            python3-distutils \
-            rsync \
-            unzip \
             zstd \
+            rsync \
             file \
             wget \
-            curl \
-            qemu-utils \
-            genisoimage
+            curl
 
-      - name: Show build configuration
-        env:
-          IMAGEBUILDER_URL: ${{ inputs.imagebuilder_url }}
-          NETWORK_SCRIPT: ${{ inputs.network_script }}
-          PREFLIGHT: ${{ inputs.preflight }}
-          ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
-          INSTALL_DAEDE: ${{ inputs.install_daede }}
-          DAEDE_RELEASE_TAG: ${{ inputs.daede_release_tag }}
+      - name: Verify files
         run: |
-          echo "========================================"
-          echo "Build configuration"
-          echo "========================================"
-          echo "ImageBuilder URL : $IMAGEBUILDER_URL"
-          echo "Network script   : $NETWORK_SCRIPT"
-          echo "Preflight        : $PREFLIGHT"
-          echo "Rootfs part size : ${ROOTFS_PARTSIZE}MB"
-          echo "Install Daede    : $INSTALL_DAEDE"
-          echo "Daede release    : $DAEDE_RELEASE_TAG"
-          echo "========================================"
+          set -e
+
+          echo "Checking build-image.sh..."
+          test -f scripts/build-image.sh
+
+          echo "Checking 99-custom.sh..."
+          test -f files/etc/uci-defaults/99-custom.sh
+
+          echo "Checking build-image.sh syntax..."
+          bash -n scripts/build-image.sh
+
+          echo "Checking 99-custom.sh syntax..."
+          sh -n files/etc/uci-defaults/99-custom.sh
+
+          chmod +x scripts/build-image.sh
+          chmod +x files/etc/uci-defaults/99-custom.sh
+
+          echo "Files OK."
 
       - name: Build image
         env:
           IMAGEBUILDER_URL: ${{ inputs.imagebuilder_url }}
-          NETWORK_SCRIPT: ${{ inputs.network_script }}
           PREFLIGHT: ${{ inputs.preflight }}
           ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
-          INSTALL_DAEDE: ${{ inputs.install_daede }}
-          DAEDE_RELEASE_TAG: ${{ inputs.daede_release_tag }}
-          DAEDE_APK_URL: ${{ inputs.daede_apk_url }}
-          GITHUB_TOKEN: ${{ github.token }}
-          OUT_DIR: ${{ github.workspace }}/out
-          WORK_DIR: ${{ github.workspace }}/work
         run: |
-          chmod +x scripts/build-image.sh
-          scripts/build-image.sh
+          set -eux
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
+          ./scripts/build-image.sh
+
+      - name: Show output
+        run: |
+          echo "========================================"
+          echo "Build output"
+          echo "========================================"
+
+          ls -lah out/
+
+          echo
+          echo "SHA256:"
+          cat out/sha256sums 2>/dev/null || true
+
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
         with:
-          name: immortalwrt-daede-x86-64
+          name: daede-x86-64
           path: out/*
           if-no-files-found: error
 
@@ -139,4 +115,3 @@ jobs:
           artifacts: out/*
           allowUpdates: true
           replacesArtifacts: true
-          bodyFile: out/BUILD-MANIFEST.txt
