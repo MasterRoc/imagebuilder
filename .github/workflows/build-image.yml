@@ -1,31 +1,20 @@
 
-name: Build immortalwrt-x86-64 image
+name: Build ImmortalWrt x86-64 image
 
 on:
   workflow_dispatch:
     inputs:
-      publish_release:
-        description: 把生成的固件发布到 GitHub Release
-        required: true
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
-
-      preflight:
-        description: 构建前先检查软件包清单是否齐全
-        required: true
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
+      version:
+        description: ImmortalWrt 版本，留空自动使用最新正式版，例如 25.12.1
+        required: false
+        default: ""
+        type: string
 
       rootfs_partsize:
         description: 根文件系统分区大小（MB）
         required: true
         default: "4096"
+        type: string
 
 
 permissions:
@@ -34,6 +23,7 @@ permissions:
 
 jobs:
   build:
+    name: Build ImmortalWrt x86-64
     runs-on: ubuntu-22.04
     timeout-minutes: 60
 
@@ -48,11 +38,13 @@ jobs:
 
 
       # ========================================
-      # Install host dependencies
+      # Install dependencies
       # ========================================
 
       - name: Install host dependencies
         run: |
+          set -e
+
           sudo apt-get update
 
           sudo apt-get install -y \
@@ -107,21 +99,22 @@ jobs:
       # ========================================
       # Build image
       #
-      # VERSION 不设置
-      # IMAGEBUILDER_URL 不设置
+      # VERSION:
       #
-      # 由 scripts/build-image.sh 自动：
+      #   留空 = 自动最新正式版
       #
-      #   1. 检测 ImmortalWrt 最新正式版本
-      #   2. 自动生成对应 ImageBuilder URL
-      #   3. 下载对应版本 ImageBuilder
-      #   4. 使用对应版本 package feeds
-      #   5. 构建镜像
+      #   指定版本 = 使用指定旧版本
+      #
+      # 例如：
+      #
+      #   VERSION=25.12.1
+      #
       # ========================================
 
       - name: Build image
         env:
-          PREFLIGHT: ${{ inputs.preflight }}
+          VERSION: ${{ inputs.version }}
+          PREFLIGHT: "true"
           ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
           OUT_DIR: ${{ github.workspace }}/out
           TARGET: x86/64
@@ -131,37 +124,32 @@ jobs:
 
           chmod +x scripts/build-image.sh
 
+          echo "Requested ImmortalWrt version: ${VERSION:-latest}"
+
           scripts/build-image.sh
 
 
       # ========================================
-      # Read actual ImmortalWrt version
-      #
-      # build-image.sh 会生成：
-      #
-      # out/.build_info
-      #
-      # 里面包含：
-      #
-      # version=25.12.x
-      # target=x86/64
-      # profile=generic
-      # imagebuilder_url=...
+      # Read actual build information
       # ========================================
 
       - name: Read build information
         id: build_info
+        shell: bash
         run: |
           set -e
 
-          test -f out/.build_info
+          if [ ! -f "out/.build_info" ]; then
+            echo "ERROR: out/.build_info not found."
+            exit 1
+          fi
 
           VERSION="$(sed -n 's/^version=//p' out/.build_info)"
           TARGET="$(sed -n 's/^target=//p' out/.build_info)"
           PROFILE="$(sed -n 's/^profile=//p' out/.build_info)"
 
           if [ -z "$VERSION" ]; then
-            echo "ERROR: Unable to read ImmortalWrt version."
+            echo "ERROR: ImmortalWrt version is empty."
             exit 1
           fi
 
@@ -175,21 +163,18 @@ jobs:
 
 
       # ========================================
-      # Prepare artifact
-      #
-      # 删除内部构建信息文件
-      # 避免上传到 Artifact / Release
+      # Verify output
       # ========================================
 
-      - name: Prepare release files
+      - name: Verify build output
         run: |
           set -e
 
-          rm -f out/.build_info
-          rm -f out/.extra_packages
-
-          echo "Final output:"
+          echo "Build output:"
           ls -lah out
+
+          test -f out/BUILD-MANIFEST.txt
+          test -f out/sha256sums
 
 
       # ========================================
@@ -209,7 +194,6 @@ jobs:
       # ========================================
 
       - name: Publish release
-        if: inputs.publish_release == 'true'
         uses: ncipollo/release-action@v1
         with:
           tag: immortalwrt-${{ steps.build_info.outputs.version }}-run${{ github.run_number }}
