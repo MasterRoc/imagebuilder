@@ -31,7 +31,7 @@ EXTRA_PACKAGES="${EXTRA_PACKAGES:-\
 luci \
 luci-i18n-base-zh-cn \
 luci-i18n-ttyd-zh-cn \
-openssh-sftp-server \
+luci-app-daede\
 luci-theme-argon \
 luci-i18n-firewall-zh-cn \
 luci-i18n-ddns-zh-cn \
