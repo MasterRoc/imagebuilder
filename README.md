@@ -4,8 +4,7 @@
 
 ## 中文
 
-构建一个 ImmortalWrt x86/64 测试固件，默认包含
-[`luci-app-daede`](https://github.com/kenzok8/openwrt-daede) 以及运行
+构建一个 ImmortalWrt x86/64 测试固件，默认运行
 `dae` / `daed` 所需的基础依赖。
 
 ### 默认固件
@@ -17,7 +16,6 @@
 - ImageBuilder URL：
   `https://downloads.immortalwrt.org/releases/25.12-SNAPSHOT/targets/x86/64/immortalwrt-imagebuilder-25.12-SNAPSHOT-x86-64.Linux-x86_64.tar.zst`
 - 快捷链接：
-  [`kenzok8/openwrt-daede`](https://github.com/kenzok8/openwrt-daede)
 
 ### 默认安装包
 
