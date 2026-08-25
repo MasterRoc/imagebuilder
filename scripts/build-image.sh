@@ -3,38 +3,32 @@ set -euo pipefail
 
 ###############################################################################
 # ImmortalWrt ImageBuilder 自动构建脚本
-#
-# 功能：
-#   1. 自动检测 ImmortalWrt 官方最新正式版
-#   2. 自动生成 x86/64 ImageBuilder 下载地址
-#   3. 使用 generic EFI profile
-#   4. ROOTFS_PARTSIZE 默认 4096 MB
-#   5. 保留原有 EXTRA_PACKAGES，不删除任何依赖
-#   6. 支持 IMAGEBUILDER_URL 手动指定
 ###############################################################################
 
-###############################################################################
-# 基础配置
-###############################################################################
-
+# 官方下载站
 BASE_URL="${BASE_URL:-https://downloads.immortalwrt.org}"
 
+# 目标平台
 TARGET="${TARGET:-x86/64}"
 
+# Profile
 PROFILE="${PROFILE:-generic}"
 
+# ROOTFS 分区大小，单位 MB
 ROOTFS_PARTSIZE="${ROOTFS_PARTSIZE:-4096}"
 
-# ImmortalWrt 官方最新正式版
+# 如果手动指定 VERSION，则使用指定版本
+# 留空则自动获取官方最新正式版本
 VERSION="${VERSION:-}"
 
-# 如果为空，则自动从官方 releases 获取最新正式版本
+# 如果手动指定 IMAGEBUILDER_URL，则直接使用
+# 留空则自动生成官方 ImageBuilder 地址
 IMAGEBUILDER_URL="${IMAGEBUILDER_URL:-}"
 
 # 工作目录
 WORKDIR="${WORKDIR:-$(pwd)}"
 
-# 下载工具
+# curl
 CURL="${CURL:-curl}"
 
 ###############################################################################
@@ -65,7 +59,7 @@ die() {
 }
 
 ###############################################################################
-# 检查依赖
+# 检查基础依赖
 ###############################################################################
 
 check_dependencies() {
@@ -85,24 +79,18 @@ check_dependencies() {
         fi
     done
 
+    # zstd 解压工具
+    if ! command -v unzstd >/dev/null 2>&1; then
+        if ! command -v zstd >/dev/null 2>&1; then
+            die "缺少 zstd/unzstd，请先安装 zstd"
+        fi
+    fi
+
     log "依赖检查完成"
 }
 
 ###############################################################################
-# 获取 ImmortalWrt 最新正式版本
-#
-# 官方：
-# https://downloads.immortalwrt.org/releases/
-#
-# 只匹配：
-#   25.12.1
-#   25.12.0
-#   24.10.6
-#
-# 不匹配：
-#   snapshots
-#   25.12-SNAPSHOT
-#   24.10-SNAPSHOT
+# 获取 ImmortalWrt 官方最新正式版本
 ###############################################################################
 
 get_latest_version() {
@@ -112,7 +100,7 @@ get_latest_version() {
         return 0
     fi
 
-    log "正在从 ImmortalWrt 官方下载站获取最新正式版本..."
+    log "正在获取 ImmortalWrt 官方最新正式版本..."
 
     local releases_url
     releases_url="${BASE_URL}/releases/"
@@ -126,34 +114,36 @@ get_latest_version() {
             --connect-timeout 15 \
             --max-time 60 \
             "$releases_url"
-    )" || die "无法访问 ImmortalWrt 官方下载站：$releases_url"
+    )" || die "无法访问 ImmortalWrt 官方下载站"
 
     VERSION="$(
         printf '%s\n' "$data" |
         grep -Eo 'href="[0-9]+\.[0-9]+\.[0-9]+/"' |
         sed -E 's/href="([0-9]+\.[0-9]+\.[0-9]+)/\1/' |
         sort -V |
-        tail -n1
+        tail -n 1
     )"
 
     if [ -z "$VERSION" ]; then
-        die "无法从 ImmortalWrt 官方下载站获取最新正式版本"
+        die "无法获取 ImmortalWrt 最新正式版本"
     fi
 
-    log "检测到最新 ImmortalWrt 正式版本：$VERSION"
+    log "最新 ImmortalWrt 正式版本：$VERSION"
 }
 
 ###############################################################################
-# 生成 ImageBuilder URL
+# 自动生成 ImageBuilder URL
 ###############################################################################
 
 get_imagebuilder_url() {
 
+    # 用户手动指定 URL
     if [ -n "$IMAGEBUILDER_URL" ]; then
         log "使用手动指定的 IMAGEBUILDER_URL"
         return 0
     fi
 
+    # 自动获取版本
     get_latest_version
 
     IMAGEBUILDER_URL="${BASE_URL}/releases/${VERSION}/targets/x86/64/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.zst"
@@ -163,24 +153,24 @@ get_imagebuilder_url() {
 }
 
 ###############################################################################
-# 检查 ImageBuilder URL
+# 检查 ImageBuilder
 ###############################################################################
 
 check_imagebuilder_url() {
 
-    log "检查 ImageBuilder 是否存在..."
+    log "检查 ImageBuilder 地址..."
 
     if ! "$CURL" \
         -fsSI \
         --retry 3 \
         --connect-timeout 15 \
         --max-time 60 \
-        "$IMAGEBUILDER_URL" >/dev/null; then
+        "$IMAGEBUILDER_URL" >/dev/null 2>&1; then
 
         die "ImageBuilder 不存在或无法访问：$IMAGEBUILDER_URL"
     fi
 
-    log "ImageBuilder URL 检查通过"
+    log "ImageBuilder 地址检查通过"
 }
 
 ###############################################################################
@@ -206,9 +196,11 @@ download_imagebuilder() {
 
     filename="$(basename "$IMAGEBUILDER_URL")"
 
+    IMAGEBUILDER_ARCHIVE="$WORKDIR/$filename"
+
     log "ImageBuilder 文件：$filename"
 
-    if [ -f "$filename" ]; then
+    if [ -s "$IMAGEBUILDER_ARCHIVE" ]; then
         log "检测到已有 ImageBuilder，跳过下载"
     else
         log "开始下载 ImageBuilder..."
@@ -219,16 +211,13 @@ download_imagebuilder() {
             --retry-delay 3 \
             --connect-timeout 30 \
             --max-time 1800 \
-            -o "$filename" \
-            "$IMAGEBUILDER_URL" ||
-            die "ImageBuilder 下载失败"
+            -o "$IMAGEBUILDER_ARCHIVE" \
+            "$IMAGEBUILDER_URL" || die "ImageBuilder 下载失败"
     fi
 
-    if [ ! -s "$filename" ]; then
-        die "ImageBuilder 文件为空：$filename"
+    if [ ! -s "$IMAGEBUILDER_ARCHIVE" ]; then
+        die "ImageBuilder 文件不存在或为空"
     fi
-
-    IMAGEBUILDER_ARCHIVE="$filename"
 
     log "ImageBuilder 下载完成"
 }
@@ -239,19 +228,31 @@ download_imagebuilder() {
 
 extract_imagebuilder() {
 
-    log "解压 ImageBuilder..."
+    log "开始解压 ImageBuilder..."
 
-    rm -rf imagebuilder
+    rm -rf "$WORKDIR/imagebuilder"
 
-    mkdir -p imagebuilder
+    mkdir -p "$WORKDIR/imagebuilder"
 
-    tar \
-        --use-compress-program=unzstd \
-        -xf "$IMAGEBUILDER_ARCHIVE" \
-        -C imagebuilder \
-        --strip-components=1
+    if command -v unzstd >/dev/null 2>&1; then
 
-    if [ ! -f "imagebuilder/Makefile" ]; then
+        tar \
+            --use-compress-program=unzstd \
+            -xf "$IMAGEBUILDER_ARCHIVE" \
+            -C "$WORKDIR/imagebuilder" \
+            --strip-components=1
+
+    else
+
+        tar \
+            --use-compress-program=zstd \
+            -xf "$IMAGEBUILDER_ARCHIVE" \
+            -C "$WORKDIR/imagebuilder" \
+            --strip-components=1
+
+    fi
+
+    if [ ! -f "$WORKDIR/imagebuilder/Makefile" ]; then
         die "ImageBuilder 解压失败：找不到 Makefile"
     fi
 
@@ -259,24 +260,24 @@ extract_imagebuilder() {
 }
 
 ###############################################################################
-# 显示版本信息
+# 显示构建信息
 ###############################################################################
 
 show_build_info() {
 
     echo
-    echo "=============================================="
+    echo "============================================================"
     echo " ImmortalWrt ImageBuilder"
-    echo "=============================================="
-    echo " Version        : $VERSION"
-    echo " Target         : $TARGET"
-    echo " Profile        : $PROFILE"
-    echo " ROOTFS_PARTSIZE: $ROOTFS_PARTSIZE"
-    echo " ImageBuilder   : $IMAGEBUILDER_URL"
-    echo "=============================================="
-    echo " Extra Packages :"
+    echo "============================================================"
+    echo " Version         : $VERSION"
+    echo " Target          : $TARGET"
+    echo " Profile         : $PROFILE"
+    echo " ROOTFS_PARTSIZE : $ROOTFS_PARTSIZE MB"
+    echo " ImageBuilder    : $IMAGEBUILDER_URL"
+    echo "============================================================"
+    echo " Extra Packages:"
     echo "$EXTRA_PACKAGES"
-    echo "=============================================="
+    echo "============================================================"
     echo
 }
 
@@ -295,11 +296,11 @@ build_image() {
         ROOTFS_PARTSIZE="$ROOTFS_PARTSIZE" \
         PACKAGES="$EXTRA_PACKAGES"
 
-    log "固件构建完成"
+    log "ImmortalWrt 固件构建完成"
 }
 
 ###############################################################################
-# 查找输出文件
+# 显示输出文件
 ###############################################################################
 
 show_output() {
@@ -307,21 +308,24 @@ show_output() {
     cd "$WORKDIR/imagebuilder"
 
     echo
-    echo "=============================================="
-    echo " 构建完成"
-    echo "=============================================="
+    echo "============================================================"
+    echo " 构建完成，生成文件："
+    echo "============================================================"
 
     if [ -d "bin/targets" ]; then
+
         find bin/targets \
-            -maxdepth 3 \
             -type f \
-            -printf '%p\n' |
+            -print |
             sort
+
     else
+
         warn "没有找到 bin/targets 输出目录"
+
     fi
 
-    echo "=============================================="
+    echo "============================================================"
 }
 
 ###############################################################################
@@ -337,18 +341,6 @@ main() {
     prepare_workdir
 
     get_imagebuilder_url
-
-    # 如果用户手动指定 IMAGEBUILDER_URL，
-    # 仍然尝试从 URL 中提取版本号
-    if [ -z "$VERSION" ]; then
-        VERSION="$(
-            printf '%s\n' "$IMAGEBUILDER_URL" |
-            grep -Eo 'immortalwrt-imagebuilder-[0-9]+\.[0-9]+\.[0-9]+' |
-            sed 's/immortalwrt-imagebuilder-//' |
-            head -n1 ||
-            true
-        )
-    fi
 
     check_imagebuilder_url
 
