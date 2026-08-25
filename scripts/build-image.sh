@@ -142,7 +142,20 @@ get_imagebuilder_url() {
 
     get_latest_version
 
-    IMAGEBUILDER_URL="${BASE_URL}/releases/${VERSION}/targets/${TARGET}/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.zst"
+
+    # 强制清理变量
+    VERSION="$(echo "$VERSION" | tr -d '"' | sed 's:/*$::')"
+
+    TARGET="$(echo "$TARGET" \
+        | tr -d '"' \
+        | sed 's:^/targets/::' \
+        | sed 's:^/::' \
+        | sed 's:/*$::')"
+
+
+    # 固定生成官方 ImageBuilder 地址
+    IMAGEBUILDER_URL="https://downloads.immortalwrt.org/releases/${VERSION}/targets/${TARGET}/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.zst"
+
 
     log "ImageBuilder URL:"
     log "$IMAGEBUILDER_URL"
