@@ -33,6 +33,8 @@ DAEDE_APK_URL="${DAEDE_APK_URL:-}"
 #  99-daed-test-network
 #  none 
 
+echo "Starting 99-custom.sh at $(date)" >> $LOGFILE
+
 NETWORK_SCRIPT="${NETWORK_SCRIPT:-99-custom.sh}"
 
 # Do NOT put luci-app-daede here.
