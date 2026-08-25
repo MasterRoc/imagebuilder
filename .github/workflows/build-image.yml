@@ -70,7 +70,7 @@ jobs:
 
 
       # ========================================
-      # Verify files
+      # Verify files 写入自用默认规则
       # ========================================
 
       - name: Verify files
@@ -96,21 +96,6 @@ jobs:
           echo "Files OK."
 
 
-      # ========================================
-      # Build image
-      #
-      # VERSION:
-      #
-      #   留空 = 自动最新正式版
-      #
-      #   指定版本 = 使用指定旧版本
-      #
-      # 例如：
-      #
-      #   VERSION=25.12.1
-      #
-      # ========================================
-
       - name: Build image
         env:
           VERSION: ${{ inputs.version }}
@@ -128,10 +113,6 @@ jobs:
 
           scripts/build-image.sh
 
-
-      # ========================================
-      # Read actual build information
-      # ========================================
 
       - name: Read build information
         id: build_info
