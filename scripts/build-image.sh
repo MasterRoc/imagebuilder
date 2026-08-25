@@ -102,9 +102,7 @@ get_latest_version() {
 
     log "正在获取 ImmortalWrt 官方最新正式版本..."
 
-    local releases_url
-    releases_url="${BASE_URL}/releases/"
-
+    local releases_url="https://downloads.immortalwrt.org/releases/"
     local data
 
     data="$(
@@ -137,18 +135,16 @@ get_latest_version() {
 
 get_imagebuilder_url() {
 
-    # 用户手动指定 URL
     if [ -n "$IMAGEBUILDER_URL" ]; then
         log "使用手动指定的 IMAGEBUILDER_URL"
         return 0
     fi
 
-    # 自动获取版本
     get_latest_version
 
-    IMAGEBUILDER_URL="${BASE_URL}/releases/${VERSION}/targets/x86/64/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.zst"
+    IMAGEBUILDER_URL="https://downloads.immortalwrt.org/releases/${VERSION}/targets/x86/64/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.zst"
 
-    log "自动生成 ImageBuilder URL："
+    log "ImageBuilder URL:"
     log "$IMAGEBUILDER_URL"
 }
 
