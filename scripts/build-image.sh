@@ -39,7 +39,7 @@ NETWORK_SCRIPT="${NETWORK_SCRIPT:-99-custom.sh}"
 
 # Do NOT put luci-app-daede here.
 # The APK is downloaded separately into ImageBuilder/packages.
-EXTRA_PACKAGES="${EXTRA_PACKAGES:-luci luci-i18n-base-zh-cn luci-i18n-firewall-zh-cn luci-i18n-package-manager-zh-cn kmod-sched-core kmod-sched-bpf kmod-veth kmod-xdp-sockets-diag curl nano}"
+EXTRA_PACKAGES="${EXTRA_PACKAGES:-luci luci-i18n-ddns-zh-cn luci-i18n-base-zh-cn luci-i18n-firewall-zh-cn luci-i18n-package-manager-zh-cn kmod-sched-core kmod-sched-bpf kmod-veth kmod-xdp-sockets-diag curl nano}"
 
 # ============================================================
 # Paths
