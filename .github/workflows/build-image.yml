@@ -18,12 +18,10 @@ on:
         default: "https://downloads.immortalwrt.org/releases/25.12.1/targets/x86/64/immortalwrt-imagebuilder-25.12.1-x86-64.Linux-x86_64.tar.zst"
 
       network_script:
-        description: 首次启动时执行的网络初始化脚本
-        required: true
-        default: "99-custom.sh"
-        type: choice
-        options:
-          - "99-custom.sh"
+  description: 首次启动时执行的网络初始化脚本
+  required: false
+  default: "99-custom.sh"
+  type: string
           
       preflight:
         description: 构建前先检查软件包清单是否齐全
