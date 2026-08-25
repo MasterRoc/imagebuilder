@@ -1,4 +1,4 @@
-name: Build daede image
+name: Build immortalwrt-86x64 image
 
 on:
   workflow_dispatch:
@@ -27,22 +27,7 @@ on:
         description: 根文件系统分区大小（MB）
         required: true
         default: "4096"
-      install_daede:
-        description: 把 luci-app-daede 打进固件
-        required: true
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
-      daede_release_tag:
-        description: luci-app-daede 的 release 版本，默认 latest 取最新
-        required: true
-        default: "latest"
-      daede_apk_url:
-        description: 可选，直接指定 luci-app-daede 的 APK 下载地址
-        required: false
-        default: ""
+      
 
 permissions:
   contents: write
