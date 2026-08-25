@@ -18,7 +18,7 @@ uci set dhcp.lan.dhcpv6='server'
 # RA flags：启用 managed-config 和 other-config
 uci add_list dhcp.lan.ra_flags='managed-config'
 uci add_list dhcp.lan.ra_flags='other-config'
-
+uci delete network.globals.ula_prefix 2>/dev/null || true
 uci commit dhcp
 
 # 设置主机名映射，解决安卓原生 TV 无法联网的问题
