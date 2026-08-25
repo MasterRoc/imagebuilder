@@ -72,13 +72,13 @@ print(matches[0])
 PY
 }
 
-install_daede_apk() {
-  case "$INSTALL_DAEDE" in
-    1|true|yes) ;;
-    *)
-      echo "Skipping luci-app-daede release APK download."
-      return
-      ;;
+# install_daede_apk() {
+#  case "$INSTALL_DAEDE" in
+#    1|true|yes) ;;
+#     *)
+#       echo "Skipping luci-app-daede release APK download."
+#      return
+#      ;;
   esac
 
   local packages_dir="$WORK_DIR/imagebuilder/packages"
