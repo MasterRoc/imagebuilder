@@ -62,16 +62,13 @@ jobs:
 
           echo "Files OK."
 
-            - name: Build image
+      - name: Build image
         env:
           VERSION: ${{ inputs.version }}
           ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
           TARGET: x86/64
           PROFILE: generic
-          IMAGEBUILDER_FILTER: "imagebuilder.*x86.*64.*\\.tar\\.(xz|gz)$"
-        run: |
-          set -ex
-          ./scripts/build-image.sh
+        run: ./scripts/build-image.sh
 
       - name: Prepare release
         id: release
