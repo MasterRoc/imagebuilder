@@ -28,7 +28,7 @@ DAEDE_APK_URL="${DAEDE_APK_URL:-}"
 
 # Network uci-defaults script
 
-Supported:
+# Supported:
    99-custom.sh
    99-daed-test-network
    none 
