@@ -26,7 +26,7 @@ on:
       rootfs_partsize:
         description: 根文件系统分区大小（MB）
         required: true
-        default: "1024"
+        default: "4096"
       install_daede:
         description: 把 luci-app-daede 打进固件
         required: true
