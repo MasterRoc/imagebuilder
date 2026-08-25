@@ -26,13 +26,13 @@ DAEDE_RELEASE_TAG="${DAEDE_RELEASE_TAG:-latest}"
 DAEDE_ARCH="${DAEDE_ARCH:-x86_64}"
 DAEDE_APK_URL="${DAEDE_APK_URL:-}"
 
-# Network uci-defaults script
-#
-# Supported:
-#   99-custom.sh
-#   99-daed-test-network
-#   none
-#
+Network uci-defaults script
+
+Supported:
+   99-custom.sh
+   99-daed-test-network
+   none 
+
 NETWORK_SCRIPT="${NETWORK_SCRIPT:-99-custom.sh}"
 
 # Do NOT put luci-app-daede here.
