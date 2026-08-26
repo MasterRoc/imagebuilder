@@ -21,10 +21,6 @@ uci add_list dhcp.lan.ra_flags='other-config'
 uci delete network.globals.ula_prefix 2>/dev/null || true
 uci commit dhcp
 
-# 设置主机名映射，解决安卓原生 TV 无法联网的问题
-uci add dhcp domain
-uci set "dhcp.@domain[-1].name=time.android.com"
-uci set "dhcp.@domain[-1].ip=203.107.6.88"
 
 
 # 1. 先获取所有物理接口列表
