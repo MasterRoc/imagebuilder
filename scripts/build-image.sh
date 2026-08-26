@@ -353,7 +353,8 @@ build_image() {
         PROFILE="$PROFILE" \
         ROOTFS_PARTSIZE="$ROOTFS_PARTSIZE" \
         PACKAGES="$EXTRA_PACKAGES"
-
+        FILES="$PWD/files"
+        
     log "ImmortalWrt EFI SquashFS 固件构建完成"
 }
 
