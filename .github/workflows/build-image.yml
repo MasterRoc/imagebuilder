@@ -150,33 +150,24 @@ jobs:
       # ============================================================
 
       - name: Show build output
-        run: |
-          set -e
+       run: |
+         set -e
 
-          echo "========================================"
-          echo "搜索构建输出"
-          echo "========================================"
+         echo "========================================"
+         echo "搜索 SQUASHFS-COMBINED-EFI.IMG.GZ"
+         echo "========================================"
 
-          echo
-          echo "所有 img.gz 文件："
+         echo
+         echo "SQUASHFS-COMBINED-EFI.IMG.GZ 文件："
 
-          find . \
-            -type f \
-            -name "*.img.gz" \
-            -print \
-            | sort || true
+         find . \
+           -type f \
+           -iname "squashfs-combined-efi.img.gz" \
+           -print \
+           | sort || true
 
-          echo
-          echo "所有 VMDK 文件："
-
-          find . \
-            -type f \
-            -name "*.vmdk" \
-            -print \
-            | sort || true
-
-          echo
-          echo "========================================"
+         echo
+         echo "========================================"
 
 
       # ============================================================
