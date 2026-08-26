@@ -350,18 +350,41 @@ build_image() {
 
     log "开始构建 ImmortalWrt EFI SquashFS 固件..."
 
+    echo "========================================"
+    echo "检查自定义文件"
+    echo "========================================"
+
+    echo
     echo "===== Custom files ====="
+
+    if [ ! -d "$PROJECT_DIR/files" ]; then
+        log "ERROR: 自定义 files 目录不存在：$PROJECT_DIR/files"
+        exit 1
+    fi
+
     find "$PROJECT_DIR/files" -type f -print
 
+    echo
     echo "===== 99-custom.sh ====="
+
+    if [ ! -f "$PROJECT_DIR/files/etc/uci-defaults/99-custom.sh" ]; then
+        log "ERROR: 99-custom.sh 不存在"
+        exit 1
+    fi
+
     ls -lah "$PROJECT_DIR/files/etc/uci-defaults/99-custom.sh"
+
+    echo
+    echo "========================================"
+    echo "开始构建 ImmortalWrt EFI SquashFS 固件"
+    echo "========================================"
 
     make image \
         PROFILE="$PROFILE" \
         ROOTFS_PARTSIZE="$ROOTFS_PARTSIZE" \
-        PACKAGES="$EXTRA_PACKAGES"
+        PACKAGES="$EXTRA_PACKAGES" \
         FILES="$PROJECT_DIR/files"
-        
+
     log "ImmortalWrt EFI SquashFS 固件构建完成"
 }
 
