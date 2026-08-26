@@ -350,16 +350,16 @@ build_image() {
     log "开始构建 ImmortalWrt EFI SquashFS 固件..."
 
     echo "===== Custom files ====="
-    find ./files -type f -print
+    find "$PROJECT_DIR/files" -type f -print
 
     echo "===== 99-custom.sh ====="
-    ls -lah ./files/etc/uci-defaults/99-custom.sh
+    ls -lah "$PROJECT_DIR/files/etc/uci-defaults/99-custom.sh"
 
     make image \
         PROFILE="$PROFILE" \
         ROOTFS_PARTSIZE="$ROOTFS_PARTSIZE" \
         PACKAGES="$EXTRA_PACKAGES"
-        FILES="$PWD/files"
+        FILES="$PROJECT_DIR/files"
         
     log "ImmortalWrt EFI SquashFS 固件构建完成"
 }
