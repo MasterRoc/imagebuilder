@@ -3,6 +3,7 @@ set -euo pipefail
 
 ###############################################################################
 # ImmortalWrt ImageBuilder 自动构建脚本
+# 只生成 x86/64 EFI SquashFS IMG.GZ
 ###############################################################################
 
 # 官方下载站
@@ -142,7 +143,6 @@ get_imagebuilder_url() {
 
     get_latest_version
 
-
     # 强制清理变量
     VERSION="$(echo "$VERSION" | tr -d '"' | sed 's:/*$::')"
 
@@ -152,10 +152,8 @@ get_imagebuilder_url() {
         | sed 's:^/::' \
         | sed 's:/*$::')"
 
-
     # 固定生成官方 ImageBuilder 地址
     IMAGEBUILDER_URL="https://downloads.immortalwrt.org/releases/${VERSION}/targets/${TARGET}/immortalwrt-imagebuilder-${VERSION}-x86-64.Linux-x86_64.tar.zst"
-
 
     log "ImageBuilder URL:"
     log "$IMAGEBUILDER_URL"
@@ -269,6 +267,54 @@ extract_imagebuilder() {
 }
 
 ###############################################################################
+# 精简镜像格式
+#
+# 只保留：
+#
+#   SquashFS
+#   EFI
+#
+# 最终目标：
+#
+#   *squashfs-combined-efi.img.gz
+#
+###############################################################################
+
+slim_image_formats() {
+
+    cd "$WORKDIR/imagebuilder"
+
+    if [ ! -f ".config" ]; then
+        die "ImageBuilder 中不存在 .config"
+    fi
+
+    log "开始精简镜像格式..."
+
+    # 关闭不需要的文件系统/虚拟机/安装镜像
+    sed -i \
+        -e 's/^CONFIG_TARGET_ROOTFS_EXT4FS=y/# CONFIG_TARGET_ROOTFS_EXT4FS is not set/' \
+        -e 's/^CONFIG_TARGET_ROOTFS_TARGZ=y/# CONFIG_TARGET_ROOTFS_TARGZ is not set/' \
+        -e 's/^CONFIG_VDI_IMAGES=y/# CONFIG_VDI_IMAGES is not set/' \
+        -e 's/^CONFIG_VHDX_IMAGES=y/# CONFIG_VHDX_IMAGES is not set/' \
+        -e 's/^CONFIG_QCOW2_IMAGES=y/# CONFIG_QCOW2_IMAGES is not set/' \
+        -e 's/^CONFIG_VMDK_IMAGES=y/# CONFIG_VMDK_IMAGES is not set/' \
+        -e 's/^CONFIG_ISO_IMAGES=y/# CONFIG_ISO_IMAGES is not set/' \
+        .config
+
+    log "镜像格式精简完成"
+
+    echo
+    echo "当前相关镜像配置："
+
+    grep -E \
+        'CONFIG_TARGET_ROOTFS_|CONFIG_.*IMAGES=' \
+        .config \
+        || true
+
+    echo
+}
+
+###############################################################################
 # 显示构建信息
 ###############################################################################
 
@@ -287,6 +333,9 @@ show_build_info() {
     echo " Extra Packages:"
     echo "$EXTRA_PACKAGES"
     echo "============================================================"
+    echo " Output:"
+    echo " SquashFS EFI IMG.GZ"
+    echo "============================================================"
     echo
 }
 
@@ -298,14 +347,14 @@ build_image() {
 
     cd "$WORKDIR/imagebuilder"
 
-    log "开始构建 ImmortalWrt 固件..."
+    log "开始构建 ImmortalWrt EFI SquashFS 固件..."
 
     make image \
         PROFILE="$PROFILE" \
         ROOTFS_PARTSIZE="$ROOTFS_PARTSIZE" \
         PACKAGES="$EXTRA_PACKAGES"
 
-    log "ImmortalWrt 固件构建完成"
+    log "ImmortalWrt EFI SquashFS 固件构建完成"
 }
 
 ###############################################################################
@@ -356,6 +405,8 @@ main() {
     download_imagebuilder
 
     extract_imagebuilder
+
+    slim_image_formats
 
     show_build_info
 
