@@ -236,33 +236,9 @@ jobs:
           cp "$IMG" release/squashfs-efi.img.gz
 
 
-          # --------------------------------------------------------
-          # 查找 VMDK
-          #
-          # ImageBuilder 默认不一定生成 VMDK。
-          #
-          # 如果存在则上传；
-          # 如果不存在则跳过，不让构建失败。
-          # --------------------------------------------------------
-
-          echo
-          echo "正在查找 VMDK..."
-
-          VMDK=$(find . \
-            -type f \
-            -name "*squashfs-combined-efi.vmdk" \
-            | head -n 1 || true)
-
-          if [ -n "$VMDK" ]; then
-
-            echo "找到 VMDK："
-            echo "$VMDK"
-
-            cp "$VMDK" release/squashfs-efi.vmdk
-
           else
 
-            echo "未找到 VMDK，跳过 VMDK。"
+    
 
           fi
 
