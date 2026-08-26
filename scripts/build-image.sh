@@ -349,6 +349,12 @@ build_image() {
 
     log "开始构建 ImmortalWrt EFI SquashFS 固件..."
 
+    echo "===== Custom files ====="
+    find ./files -type f -print
+
+    echo "===== 99-custom.sh ====="
+    ls -lah ./files/etc/uci-defaults/99-custom.sh
+
     make image \
         PROFILE="$PROFILE" \
         ROOTFS_PARTSIZE="$ROOTFS_PARTSIZE" \
