@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 ###############################################################################
 # ImmortalWrt ImageBuilder 自动构建脚本
