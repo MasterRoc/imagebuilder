@@ -1,4 +1,5 @@
-name: Build immortalwrt-86x64 image
+
+name: Build ImmortalWrt x86-64 image
 
 on:
   workflow_dispatch:
@@ -11,39 +12,48 @@ on:
         options:
           - "true"
           - "false"
-      imagebuilder_url:
-        description: ImmortalWrt ImageBuilder 下载地址
-        required: true
-        default: "https://downloads.immortalwrt.org/releases/25.12.1/targets/x86/64/immortalwrt-imagebuilder-25.12.1-x86-64.Linux-x86_64.tar.zst"
-      preflight:
-        description: 构建前先检查软件包清单是否齐全
-        required: true
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
+
+      version:
+        description: ImmortalWrt 版本，留空自动使用最新正式版，例如 25.12.1
+        required: false
+        default: ""
+        type: string
+
       rootfs_partsize:
         description: 根文件系统分区大小（MB）
         required: true
         default: "4096"
-      
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   build:
+    name: Build ImmortalWrt x86-64
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    timeout-minutes: 120
 
     steps:
+
+      # ============================================================
+      # Checkout
+      # ============================================================
+
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install host dependencies
+
+      # ============================================================
+      # 安装构建依赖
+      # ============================================================
+
+      - name: Install dependencies
         run: |
+          set -e
+
           sudo apt-get update
+
           sudo apt-get install -y \
             build-essential \
             clang \
@@ -64,54 +74,323 @@ jobs:
             curl \
             qemu-utils \
             genisoimage
-            
-      # ========================================
-      # Verify files
-      # ========================================
+
+
+      # ============================================================
+      # 检查项目文件
+      # ============================================================
 
       - name: Verify files
         run: |
           set -e
-          
+
+          echo "========================================"
+          echo "检查项目文件"
+          echo "========================================"
+
+          echo
           echo "Checking 99-custom.sh..."
+
           test -f files/etc/uci-defaults/99-custom.sh
 
+          echo "99-custom.sh found."
+
+          echo
           echo "Checking 99-custom.sh syntax..."
+
           sh -n files/etc/uci-defaults/99-custom.sh
 
           chmod +x files/etc/uci-defaults/99-custom.sh
 
+          echo "99-custom.sh syntax OK."
+
+          echo
+          echo "Checking build-image.sh..."
+
+          test -f scripts/build-image.sh
+
+          echo "build-image.sh found."
+
+          echo
+          echo "Checking build-image.sh syntax..."
+
+          bash -n scripts/build-image.sh
+
+          chmod +x scripts/build-image.sh
+
+          echo "build-image.sh syntax OK."
+
+          echo
+          echo "========================================"
           echo "Files OK."
+          echo "========================================"
 
 
-      # ========================================
-      # Build image
-      # ========================================
+      # ============================================================
+      # 构建 ImmortalWrt
+      # ============================================================
 
       - name: Build image
         env:
-          IMAGEBUILDER_URL: ${{ inputs.imagebuilder_url }}
-          PREFLIGHT: ${{ inputs.preflight }}
+          VERSION: ${{ inputs.version }}
           ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
-          OUT_DIR: ${{ github.workspace }}/out
+          TARGET: x86/64
+          PROFILE: generic
+
         run: |
-          chmod +x scripts/build-image.sh
-          scripts/build-image.sh
+          set -e
+
+          echo "========================================"
+          echo "开始构建 ImmortalWrt"
+          echo "========================================"
+
+          echo "Requested Version : ${VERSION:-latest}"
+          echo "Target            : $TARGET"
+          echo "Profile           : $PROFILE"
+          echo "Rootfs Partsize   : ${ROOTFS_PARTSIZE} MB"
+
+          echo "========================================"
+
+          ./scripts/build-image.sh
+
+
+      # ============================================================
+      # 显示实际构建输出
+      # ============================================================
+
+      - name: Show build output
+        run: |
+          set -e
+
+          echo "========================================"
+          echo "搜索 SQUASHFS-COMBINED-EFI.IMG.GZ"
+          echo "========================================"
+
+          echo
+          echo "SQUASHFS-COMBINED-EFI.IMG.GZ 文件："
+
+          find . \
+            -type f \
+            -iname "squashfs-combined-efi.img.gz" \
+            -print \
+            | sort || true
+
+          echo
+          echo "========================================"
+
+
+      # ============================================================
+      # 准备 Release 文件
+      # ============================================================
+
+      - name: Prepare release
+        id: release
+        shell: bash
+        run: |
+          set -e
+
+          mkdir -p release
+
+          echo "========================================"
+          echo "准备 Release 文件"
+          echo "========================================"
+
+          # --------------------------------------------------------
+          # 查找 EFI SquashFS 镜像
+          #
+          # 实际文件名通常类似：
+          #
+          # immortalwrt-25.12.1-x86-64-generic-squashfs-combined-efi.img.gz
+          #
+          # 不写死完整文件名。
+          # --------------------------------------------------------
+
+          echo
+          echo "正在查找 EFI SquashFS 镜像..."
+
+          IMG=$(
+            find . \
+              -type f \
+              -name "*squashfs-combined-efi.img.gz" \
+              | head -n 1
+          )
+
+          if [ -z "$IMG" ]; then
+
+            echo
+            echo "ERROR: squashfs EFI image not found"
+            echo
+
+            echo "当前所有 img.gz 文件："
+
+            find . \
+              -type f \
+              -name "*.img.gz" \
+              -print \
+              | sort || true
+
+            echo
+
+            echo "当前目录结构："
+
+            find . \
+              -maxdepth 6 \
+              -type f \
+              | sort \
+              | head -n 500 || true
+
+            exit 1
+          fi
+
+          echo
+          echo "找到 EFI 镜像："
+          echo "$IMG"
+
+          # --------------------------------------------------------
+          # 复制到 Release 目录
+          # --------------------------------------------------------
+
+          cp "$IMG" release/squashfs-efi.img.gz
+
+
+          # --------------------------------------------------------
+          # 验证 Release 文件
+          # --------------------------------------------------------
+
+          echo
+          echo "========================================"
+          echo "验证 Release 文件"
+          echo "========================================"
+
+          test -f release/squashfs-efi.img.gz
+
+          echo "EFI 镜像检查通过。"
+
+
+          # --------------------------------------------------------
+          # 获取版本号
+          #
+          # 如果 workflow 手动指定 version：
+          # 使用手动版本。
+          #
+          # 如果留空：
+          # 自动获取官方最新正式版。
+          # --------------------------------------------------------
+
+          VERSION="${{ inputs.version }}"
+
+          if [ -n "$VERSION" ]; then
+
+            echo
+            echo "使用手动指定版本：$VERSION"
+
+          else
+
+            echo
+            echo "正在获取 ImmortalWrt 官方最新正式版本..."
+
+            VERSION=$(
+              curl -fsSL \
+                --retry 3 \
+                --connect-timeout 15 \
+                --max-time 60 \
+                "https://downloads.immortalwrt.org/releases/" |
+              grep -oE 'href="[0-9]+\.[0-9]+\.[0-9]+/"' |
+              sed -E 's/href="([0-9]+\.[0-9]+\.[0-9]+)\/"/\1/' |
+              sort -V |
+              tail -n 1
+            )
+
+          fi
+
+
+          # --------------------------------------------------------
+          # 验证版本号
+          # --------------------------------------------------------
+
+          if [ -z "$VERSION" ]; then
+
+            echo "ERROR: 无法获取 ImmortalWrt 版本号"
+
+            exit 1
+
+          fi
+
+
+          # --------------------------------------------------------
+          # 输出版本
+          # --------------------------------------------------------
+
+          echo
+          echo "Build Version: $VERSION"
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+
+          # --------------------------------------------------------
+          # 显示最终文件
+          # --------------------------------------------------------
+
+          echo
+          echo "========================================"
+          echo "Release 文件："
+          echo "========================================"
+
+          ls -lh release/
+
+          echo
+          echo "========================================"
+          echo "Release 准备完成"
+          echo "========================================"
+
+
+      # ============================================================
+      # 上传 GitHub Actions Artifact
+      # ============================================================
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: immortalwrt-daede-x86-64
-          path: out/*
+          name: immortalwrt-${{ steps.release.outputs.version }}-x86-64
+          path: release/*
           if-no-files-found: error
+
+
+      # ============================================================
+      # 发布 GitHub Release
+      # ============================================================
 
       - name: Publish release
         if: inputs.publish_release == 'true'
         uses: ncipollo/release-action@v1
         with:
-          tag: daede-${{ github.run_number }}
-          name: daede 固件 ${{ github.run_number }}
-          artifacts: out/*
+          tag: immortalwrt-${{ steps.release.outputs.version }}-run${{ github.run_number }}
+
+          name: ImmortalWrt ${{ steps.release.outputs.version }} x86-64
+
+          artifacts: release/*
+
           allowUpdates: true
+
           replacesArtifacts: true
-          bodyFile: out/BUILD-MANIFEST.txt
+
+          body: |
+            # ImmortalWrt x86-64
+
+            ## Build Information
+
+            - ImmortalWrt Version: ${{ steps.release.outputs.version }}
+            - Target: x86/64
+            - Profile: generic
+            - Rootfs Partition Size: ${{ inputs.rootfs_partsize }} MB
+
+            ## Image
+
+            - EFI SquashFS: `squashfs-efi.img.gz`
+
+            ## Build
+
+            Automatically built with ImmortalWrt ImageBuilder.
+
+            This build follows the latest official ImmortalWrt stable release when no version is specified.
+
