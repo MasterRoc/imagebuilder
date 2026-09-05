@@ -1,492 +1,117 @@
-name: Build Media Saber FPK
+name: Build immortalwrt-86x64 image
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "manifest"
-      - "app/**"
-      - "cmd/**"
-      - "config/**"
-      - "wizard/**"
-      - "fnos/**"
-      - "scripts/**"
-      - ".github/workflows/build.yml"
-
   workflow_dispatch:
     inputs:
-      media_saber_tag:
-        description: "Media Saber 版本，留空自动获取最新 Stable Release"
-        required: false
-        default: ""
-        type: string
+      publish_release:
+        description: 把生成的固件发布到 GitHub Release
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      imagebuilder_url:
+        description: ImmortalWrt ImageBuilder 下载地址
+        required: true
+        default: "https://downloads.immortalwrt.org/releases/25.12.1/targets/x86/64/immortalwrt-imagebuilder-25.12.1-x86-64.Linux-x86_64.tar.zst"
+      preflight:
+        description: 构建前先检查软件包清单是否齐全
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      rootfs_partsize:
+        description: 根文件系统分区大小（MB）
+        required: true
+        default: "4096"
+      
 
 permissions:
-  contents: read
-
-concurrency:
-  group: media-saber-build-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  # ============================================================
-  # fnpack 官方版本
-  # ============================================================
-  FNPACK_VERSION: "1.2.3"
-
-  # fnpack 1.2.3 Linux AMD64 SHA256
-  FNPACK_SHA256: "54b97fa7b70968c4d05c79840f5daeff508957d0bb2062fdb0376d00d9615c93"
+  contents: write
 
 jobs:
   build:
-
-    name: Build Media Saber FPK
-
-    runs-on: ubuntu-24.04
-
-    timeout-minutes: 30
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
 
     steps:
-
-      # ==========================================================
-      # 1. Checkout
-      # ==========================================================
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        uses: actions/checkout@v6
 
-
-      # ==========================================================
-      # 2. Install dependencies
-      # ==========================================================
-      - name: Install dependencies
-        shell: bash
+      - name: Install host dependencies
         run: |
-          set -euo pipefail
-
           sudo apt-get update
-
           sudo apt-get install -y \
-            curl \
-            jq \
+            build-essential \
+            clang \
+            flex \
+            bison \
+            gawk \
+            gettext \
+            git \
+            libncurses-dev \
+            libssl-dev \
             python3 \
-            tar \
-            gzip \
-            xz-utils \
-            shellcheck \
-            coreutils
+            python3-distutils \
+            rsync \
+            unzip \
+            zstd \
+            file \
+            wget \
+            curl \
+            qemu-utils \
+            genisoimage
+            
+      # ========================================
+      # Verify files
+      # ========================================
 
-          echo "======================================"
-          echo "Environment"
-          echo "======================================"
-
-          uname -a
-          echo
-
-          echo "Python:"
-          python3 --version
-
-          echo "Curl:"
-          curl --version | head -n 1
-
-          echo "JQ:"
-          jq --version
-
-          echo "ShellCheck:"
-          shellcheck --version | head -n 1
-
-
-      # ==========================================================
-      # 3. Prepare scripts
-      # ==========================================================
-      - name: Prepare scripts
-        shell: bash
+      - name: Verify files
         run: |
-          set -euo pipefail
+          set -e
+          
+          echo "Checking 99-custom.sh..."
+          test -f files/etc/uci-defaults/99-custom.sh
 
-          chmod +x scripts/*.sh
+          echo "Checking 99-custom.sh syntax..."
+          sh -n files/etc/uci-defaults/99-custom.sh
 
-          if [ -d "fnos/cmd" ]; then
-            chmod +x fnos/cmd/*
-          fi
+          chmod +x files/etc/uci-defaults/99-custom.sh
 
-          echo "======================================"
-          echo "Build scripts"
-          echo "======================================"
-
-          find scripts \
-            -maxdepth 2 \
-            -type f \
-            -print
-
-          if [ -d "fnos/cmd" ]; then
-            echo
-            echo "fnos/cmd:"
-            find fnos/cmd \
-              -maxdepth 2 \
-              -type f \
-              -print
-          fi
+          echo "Files OK."
 
 
-      # ==========================================================
-      # 4. Fetch Media Saber upstream
-      # ==========================================================
-      - name: Fetch upstream
-        shell: bash
+      # ========================================
+      # Build image
+      # ========================================
+
+      - name: Build image
         env:
-          MEDIA_SABER_TAG: ${{ inputs.media_saber_tag }}
+          IMAGEBUILDER_URL: ${{ inputs.imagebuilder_url }}
+          PREFLIGHT: ${{ inputs.preflight }}
+          ROOTFS_PARTSIZE: ${{ inputs.rootfs_partsize }}
+          OUT_DIR: ${{ github.workspace }}/out
         run: |
-          set -euo pipefail
+          chmod +x scripts/build-image.sh
+          scripts/build-image.sh
 
-          echo "======================================"
-          echo "Fetch Media Saber upstream"
-          echo "======================================"
-
-          if [ -n "${MEDIA_SABER_TAG:-}" ]; then
-            echo "Requested tag:"
-            echo "${MEDIA_SABER_TAG}"
-          else
-            echo "Requested tag: latest Stable"
-          fi
-
-          ./scripts/fetch-upstream.sh
-
-
-      # ==========================================================
-      # 5. Read upstream version
-      # ==========================================================
-      - name: Read upstream version
-        id: version
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "Read upstream version"
-          echo "======================================"
-
-          if [ ! -f "work/upstream_tag" ]; then
-            echo "ERROR: work/upstream_tag does not exist"
-
-            echo
-            echo "Current work directory:"
-            find work \
-              -maxdepth 3 \
-              -type f \
-              -print 2>/dev/null || true
-
-            exit 1
-          fi
-
-          TAG="$(tr -d '[:space:]' < work/upstream_tag)"
-
-          if [ -z "$TAG" ]; then
-            echo "ERROR: upstream tag is empty"
-            exit 1
-          fi
-
-          VERSION="${TAG//_/.}"
-
-          echo "Upstream tag:"
-          echo "$TAG"
-
-          echo
-          echo "Package version:"
-          echo "$VERSION"
-
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-
-      # ==========================================================
-      # 6. Show manifest
-      # ==========================================================
-      - name: Show manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "Manifest"
-          echo "======================================"
-
-          if [ -f "manifest" ]; then
-            cat manifest
-
-          elif [ -f "fnos/manifest" ]; then
-            cat fnos/manifest
-
-          else
-            echo "WARNING: manifest not found at:"
-            echo "  ./manifest"
-            echo "  ./fnos/manifest"
-          fi
-
-
-      # ==========================================================
-      # 7. ShellCheck
-      # ==========================================================
-      - name: Check shell scripts
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "ShellCheck"
-          echo "======================================"
-
-          shellcheck scripts/*.sh fnos/cmd/* || true
-
-
-      # ==========================================================
-      # 8. Install official fnpack
-      # ==========================================================
-      - name: Install fnpack
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          FNPACK_URL="https://static2.fnnas.com/fnpack/fnpack-${FNPACK_VERSION}-linux-amd64"
-          FNPACK_PATH="${RUNNER_TEMP}/fnpack"
-
-          echo "======================================"
-          echo "Install official fnpack"
-          echo "======================================"
-
-          echo "Version:"
-          echo "${FNPACK_VERSION}"
-
-          echo
-          echo "Download URL:"
-          echo "${FNPACK_URL}"
-
-          echo
-          echo "Expected SHA256:"
-          echo "${FNPACK_SHA256}"
-
-          # ------------------------------------------------------
-          # Download
-          # ------------------------------------------------------
-          curl \
-            --fail \
-            --location \
-            --silent \
-            --show-error \
-            --retry 5 \
-            --retry-delay 2 \
-            --connect-timeout 20 \
-            --max-time 300 \
-            "${FNPACK_URL}" \
-            --output "${FNPACK_PATH}"
-
-          # ------------------------------------------------------
-          # SHA256
-          # ------------------------------------------------------
-          echo
-          echo "Checking fnpack SHA256..."
-
-          printf '%s  %s\n' \
-            "${FNPACK_SHA256}" \
-            "${FNPACK_PATH}" \
-            | sha256sum --check
-
-          # ------------------------------------------------------
-          # Permission
-          # ------------------------------------------------------
-          chmod 755 "${FNPACK_PATH}"
-
-          # ------------------------------------------------------
-          # IMPORTANT:
-          # 安装到系统 PATH
-          # build-fpk.sh 直接执行 fnpack 时才能找到
-          # ------------------------------------------------------
-          sudo install \
-            -m 755 \
-            "${FNPACK_PATH}" \
-            /usr/local/bin/fnpack
-
-          echo
-          echo "fnpack installed to:"
-          echo "/usr/local/bin/fnpack"
-
-
-      # ==========================================================
-      # 9. Verify fnpack
-      # ==========================================================
-      - name: Verify fnpack
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "Verify fnpack"
-          echo "======================================"
-
-          echo "PATH:"
-          echo "$PATH"
-
-          echo
-          echo "fnpack location:"
-          command -v fnpack
-
-          echo
-          echo "fnpack file:"
-          ls -lh "$(command -v fnpack)"
-
-          echo
-          echo "fnpack help:"
-          fnpack --help
-
-          echo
-          echo "fnpack build help:"
-          fnpack build --help || true
-
-
-      # ==========================================================
-      # 10. Build FPK
-      # ==========================================================
-      - name: Build FPK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "Build Media Saber FPK"
-          echo "======================================"
-
-          echo "Using fnpack:"
-          command -v fnpack
-
-          echo
-          echo "fnpack:"
-          fnpack --help >/dev/null
-
-          echo
-          echo "Running:"
-          echo "./scripts/build-fpk.sh"
-
-          ./scripts/build-fpk.sh
-
-
-      # ==========================================================
-      # 11. Validate FPK
-      # ==========================================================
-      - name: Validate FPK
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "Validate FPK"
-          echo "======================================"
-
-          ./scripts/validate.sh
-
-
-      # ==========================================================
-      # 12. Check build output
-      # ==========================================================
-      - name: Check build output
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "Build output"
-          echo "======================================"
-
-          if [ ! -d "dist" ]; then
-            echo "ERROR: dist directory does not exist"
-            exit 1
-          fi
-
-          echo
-          echo "Files:"
-          find dist \
-            -maxdepth 2 \
-            -type f \
-            -printf '%p  %s bytes\n' \
-            | sort
-
-          echo
-
-          FPK_COUNT="$(
-            find dist \
-              -maxdepth 1 \
-              -type f \
-              -name '*.fpk' \
-              | wc -l
-          )"
-
-          echo "FPK count: ${FPK_COUNT}"
-
-          if [ "${FPK_COUNT}" -eq 0 ]; then
-            echo "ERROR: No .fpk package generated"
-            exit 1
-          fi
-
-
-      # ==========================================================
-      # 13. Generate SHA256SUMS
-      # ==========================================================
-      - name: Generate SHA256SUMS
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "======================================"
-          echo "Generate SHA256SUMS"
-          echo "======================================"
-
-          cd dist
-
-          rm -f SHA256SUMS
-
-          sha256sum ./*.fpk > SHA256SUMS
-
-          echo
-          cat SHA256SUMS
-
-
-      # ==========================================================
-      # 14. Upload artifact
-      # ==========================================================
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: media-saber-fpk-v${{ steps.version.outputs.version }}
-          path: |
-            dist/*.fpk
-            dist/SHA256SUMS
+          name: immortalwrt-daede-x86-64
+          path: out/*
           if-no-files-found: error
-          retention-days: 14
 
-
-      # ==========================================================
-      # 15. Job summary
-      # ==========================================================
-      - name: Summary
-        if: always()
-        shell: bash
-        run: |
-          echo "======================================"
-          echo "Media Saber Build Summary"
-          echo "======================================"
-
-          echo "Upstream tag:"
-          echo "${{ steps.version.outputs.tag }}"
-
-          echo
-          echo "Version:"
-          echo "${{ steps.version.outputs.version }}"
-
-          echo
-          echo "FPK files:"
-          find dist \
-            -maxdepth 1 \
-            -type f \
-            -name '*.fpk' \
-            -print 2>/dev/null || true
+      - name: Publish release
+        if: inputs.publish_release == 'true'
+        uses: ncipollo/release-action@v1
+        with:
+          tag: daede-${{ github.run_number }}
+          name: daede 固件 ${{ github.run_number }}
+          artifacts: out/*
+          allowUpdates: true
+          replacesArtifacts: true
+          bodyFile: out/BUILD-MANIFEST.txt
